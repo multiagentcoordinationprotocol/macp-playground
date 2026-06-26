@@ -60,7 +60,7 @@ async function main(): Promise<void> {
   const participantId = bootstrap.participant_id;
   const recipients = participants.filter((p) => p !== participantId);
 
-  // macp-sdk-typescript@0.3.0 reads bootstrap.cancel_callback itself and
+  // macp-sdk-typescript@0.4.0 reads bootstrap.cancel_callback itself and
   // auto-starts the HTTP listener that POSTs a cancel signal into
   // participant.stop() — no local hand-rolled server needed.
   const participant = fromBootstrap();
@@ -175,6 +175,42 @@ async function main(): Promise<void> {
 
     committed = true;
     const sessionContext = (bootstrap.metadata?.session_context ?? {}) as Record<string, unknown>;
+
+    // macp-proto 0.1.3 suspend/resume demo. Suspension is restricted to the
+    // session initiator and policy-delegated roles (RFC-MACP-0001 §7.5) — the
+    // observer control-plane cannot do it. As the initiator, the risk-agent
+    // exercises that authority here: once every specialist has voted (quorum
+    // met) but before the terminal commit, it pauses the live session via the
+    // SDK's SuspendSession RPC, holds, then ResumeSession. The control-plane
+    // observes the SESSION_STATE_SUSPENDED → OPEN transition and emits
+    // run.suspended / run.resumed for the console. Gated on a `suspend`
+    // sentinel in the customerId so normal runs are unaffected.
+    const customerId = String(sessionContext.customerId ?? '');
+    if (/suspend/i.test(customerId)) {
+      const sessionId = bootstrap.session_id ?? '';
+      const holdMs = Number(process.env.RISK_DECIDER_SUSPEND_HOLD_MS ?? 8000);
+      if (sessionId) {
+        try {
+          log('suspend-demo: suspending live session (initiator authority)', { sessionId, holdMs });
+          await participant.client.suspendSession(sessionId, 'suspend/resume demo (initiator-driven)', {
+            auth: participant.auth,
+            raiseOnNack: true
+          });
+          log('suspend-demo: session suspended — holding before resume', { sessionId, holdMs });
+          await new Promise((resolve) => setTimeout(resolve, holdMs));
+          await participant.client.resumeSession(sessionId, 'suspend/resume demo resume', {
+            auth: participant.auth,
+            raiseOnNack: true
+          });
+          log('suspend-demo: session resumed — proceeding to commit', { sessionId });
+        } catch (suspendError) {
+          log('suspend-demo failed', {
+            error: suspendError instanceof Error ? suspendError.message : String(suspendError)
+          });
+        }
+      }
+    }
+
     const decision = strategy.decide(signals, sessionContext);
 
     log('policy-driven decision', {
@@ -207,9 +243,29 @@ async function main(): Promise<void> {
       });
       log('commitment sent', { proposalId, action: decision.action });
     } catch (commitError) {
-      log('commitment send failed', {
-        error: commitError instanceof Error ? commitError.message : String(commitError)
-      });
+      const message = commitError instanceof Error ? commitError.message : String(commitError);
+      log('commitment send failed', { error: message });
+
+      // The runtime's policy engine can reject a commit (RFC-MACP-0012) — e.g.
+      // votes short of quorum or evaluations under the confidence floor. A
+      // rejected commit leaves no terminal commitment, so the session would
+      // otherwise linger until TTL expiry. Drive it to an explicit terminal
+      // CANCELLED state (proto 0.1.3 / macp-sdk-typescript 0.4.0) instead, so
+      // observers see a deterministic outcome distinct from TTL EXPIRED.
+      const sessionId = bootstrap.session_id ?? '';
+      if (sessionId) {
+        try {
+          await participant.client.cancelSession(sessionId, `commitment rejected by runtime: ${message}`, {
+            auth: participant.auth,
+            cancelledBy: participantId
+          });
+          log('session cancelled after commit denial', { sessionId, reason: message });
+        } catch (cancelError) {
+          log('session cancel failed', {
+            error: cancelError instanceof Error ? cancelError.message : String(cancelError)
+          });
+        }
+      }
     }
   }
 

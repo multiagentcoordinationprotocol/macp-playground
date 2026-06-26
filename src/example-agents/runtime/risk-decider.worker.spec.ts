@@ -8,9 +8,13 @@ const mockOnTerminal = jest.fn();
 const mockActions = {
   vote: jest.fn().mockResolvedValue(undefined),
   commit: jest.fn().mockResolvedValue(undefined),
-  evaluate: jest.fn().mockResolvedValue(undefined),
-  cancelSession: jest.fn()
+  evaluate: jest.fn().mockResolvedValue(undefined)
 };
+// participant.client surface the worker reaches into directly (session.context
+// signal emission + cancel-on-policy-denial).
+const mockCancelSession = jest.fn().mockResolvedValue({ ok: true });
+const mockClientSend = jest.fn().mockResolvedValue(undefined);
+const mockAuth = { kind: 'bearer', token: 'tok-risk' };
 
 jest.mock('macp-sdk-typescript', () => ({
   agent: {
@@ -19,9 +23,17 @@ jest.mock('macp-sdk-typescript', () => ({
       stop: mockStop,
       on: mockOn,
       onTerminal: mockOnTerminal,
-      actions: mockActions
+      actions: mockActions,
+      auth: mockAuth,
+      client: {
+        cancelSession: mockCancelSession,
+        send: mockClientSend,
+        protoRegistry: { encodeKnownPayload: jest.fn(() => ({})) }
+      }
     }))
-  }
+  },
+  buildEnvelope: jest.fn(() => ({})),
+  buildSignalPayload: jest.fn(() => ({}))
 }));
 
 // ── worker-side mocks ────────────────────────────────────────────────
@@ -77,6 +89,38 @@ async function runWorker(): Promise<void> {
   });
 }
 
+// Pull a registered handler back off the `participant.on(type, fn)` mock so the
+// test can drive the Proposal → Evaluation → commit flow directly.
+function getHandler(type: string): (message: unknown, ctx?: unknown) => void {
+  const call = mockOn.mock.calls.find((c: unknown[]) => c[0] === type);
+  if (!call) throw new Error(`no handler registered for ${type}`);
+  return call[1] as (message: unknown, ctx?: unknown) => void;
+}
+
+// Drive both specialists to APPROVE so the coordinator reaches quorum and
+// attempts a commit through the supplied ctx. `commitImpl` decides whether the
+// runtime accepts (resolves) or rejects (throws) that commit.
+async function driveToCommit(commitImpl: jest.Mock): Promise<{ commit: jest.Mock; vote: jest.Mock }> {
+  const ctx = {
+    actions: {
+      vote: jest.fn().mockResolvedValue(undefined),
+      commit: commitImpl
+    }
+  };
+  const onProposal = getHandler('Proposal');
+  const onEvaluation = getHandler('Evaluation');
+
+  onProposal({ proposalId: 'p1', sender: 'fraud-agent', payload: {} });
+  onEvaluation({ proposalId: 'p1', sender: 'fraud-agent', payload: { recommendation: 'APPROVE', confidence: 1 } }, ctx);
+  onEvaluation(
+    { proposalId: 'p1', sender: 'compliance-agent', payload: { recommendation: 'APPROVE', confidence: 1 } },
+    ctx
+  );
+
+  await jest.advanceTimersByTimeAsync(50);
+  return { commit: ctx.actions.commit, vote: ctx.actions.vote };
+}
+
 // ── tests ───────────────────────────────────────────────────────────
 describe('risk-decider.worker (SDK Participant)', () => {
   beforeEach(() => {
@@ -129,5 +173,37 @@ describe('risk-decider.worker (SDK Participant)', () => {
 
     expect(process.exitCode).toBe(1);
     process.exitCode = originalExitCode;
+  });
+
+  it('cancels the session to a terminal CANCELLED state when the runtime rejects the commit', async () => {
+    mockLoadBootstrap.mockReturnValue(defaultBootstrap());
+    await runWorker();
+    await jest.advanceTimersByTimeAsync(10);
+
+    const { commit } = await driveToCommit(
+      jest.fn().mockRejectedValue(new Error('POLICY_DENIED: PolicyDenied'))
+    );
+
+    // The commit was attempted and rejected by the runtime policy engine...
+    expect(commit).toHaveBeenCalled();
+    // ...so the coordinator drives the session terminal via cancelSession
+    // (proto 0.1.3 / macp-sdk-typescript 0.4.0) rather than leaving it to TTL.
+    expect(mockCancelSession).toHaveBeenCalledTimes(1);
+    expect(mockCancelSession).toHaveBeenCalledWith(
+      'sess-uuid-v4',
+      expect.stringContaining('POLICY_DENIED'),
+      expect.objectContaining({ auth: mockAuth, cancelledBy: 'risk-coordinator' })
+    );
+  });
+
+  it('does not cancel the session when the commit is accepted', async () => {
+    mockLoadBootstrap.mockReturnValue(defaultBootstrap());
+    await runWorker();
+    await jest.advanceTimersByTimeAsync(10);
+
+    const { commit } = await driveToCommit(jest.fn().mockResolvedValue(undefined));
+
+    expect(commit).toHaveBeenCalled();
+    expect(mockCancelSession).not.toHaveBeenCalled();
   });
 });

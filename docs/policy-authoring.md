@@ -126,6 +126,27 @@ The service still starts, but downstream `/examples/run` requests will
 fail at the runtime with `UNKNOWN_POLICY_VERSION`. See
 "Troubleshooting" below.
 
+## Runtime Enforcement at Commit Time
+
+The runtime's policy engine is **authoritative**. The coordinator's local
+`PolicyStrategy` (`src/example-agents/runtime/policy-strategy.ts`) is only an
+*advisory* mirror used to decide when to attempt a commit — it can legitimately
+disagree with the runtime. When the coordinator emits its `commit`, the runtime
+re-evaluates the registered policy against the **actual** votes and evaluations
+and may reject it with `POLICY_DENIED`, e.g.:
+
+- `"majority vote failed: 25.0% approve, need >= 50.0%"`
+- `"no qualifying evaluation meets minimum confidence threshold: 0.60"`
+
+A rejected commit produces no terminal commitment, so the session would
+otherwise linger until TTL expiry. To keep the demo deterministic, the
+`risk-decider` coordinator catches `POLICY_DENIED` and drives the session to a
+terminal **`CANCELLED`** state via `participant.client.cancelSession()`
+(proto 0.1.3 / `macp-sdk-typescript` 0.4.0). The control-plane observer maps the
+resulting `CANCELLED` lifecycle event to a `cancelled` run status — distinct
+from a TTL `EXPIRED` run. This means a run whose real-agent inputs don't satisfy
+the governance thresholds finalizes promptly as `cancelled` rather than hanging.
+
 ## Creating a Custom Policy
 
 1. **Create the JSON file** in `policies/` — the shape is the runtime's
