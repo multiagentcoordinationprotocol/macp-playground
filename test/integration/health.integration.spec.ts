@@ -13,7 +13,7 @@ describe('Health (integration)', () => {
 
   it('GET /healthz returns ok', async () => {
     const result = await ctx.client.healthz();
-    expect(result).toEqual({ ok: true, service: 'macp-example-service' });
+    expect(result).toEqual({ ok: true, service: 'macp-playground' });
   });
 
   it('GET /healthz returns 200 status', async () => {

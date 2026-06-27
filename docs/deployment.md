@@ -6,11 +6,11 @@ The repo is **fully platform-agnostic**. The `Dockerfile` is the only deployment
 
 ## Required sidecars
 
-The examples-service does **not** run standalone. Before it will boot, two additional services must be reachable:
+The macp-playground does **not** run standalone. Before it will boot, two additional services must be reachable:
 
 | Service | Why it's required | How to run it |
 |---------|-------------------|---------------|
-| **MACP runtime** (gRPC) | Agents open their own gRPC channels to the runtime (RFC-MACP-0004 §4). `MACP_RUNTIME_ADDRESS` must point to a live runtime. | See [`runtime/docs/deployment.md`](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/deployment.md). |
+| **MACP runtime** (gRPC) | Agents open their own gRPC channels to the runtime (RFC-MACP-0004 §4). `MACP_RUNTIME_ADDRESS` must point to a live runtime. | See [`macp-runtime/docs/deployment.md`](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/deployment.md). |
 | **auth-service** (HTTP) | Every agent spawn mints a short-lived JWT via `POST /tokens`. At startup, `PolicyRegistrarService` also mints an admin JWT to register scenario policies with the runtime. Missing `MACP_AUTH_SERVICE_URL` throws `INVALID_CONFIG` and the service fails startup. | `docker-compose.dev.yml` runs it as a sidecar; in production, deploy the `auth-service` image alongside the runtime. |
 
 The runtime must be configured to accept JWTs minted by the same
@@ -18,7 +18,7 @@ auth-service — on the runtime set `MACP_AUTH_ISSUER`, `MACP_AUTH_AUDIENCE`,
 and `MACP_AUTH_JWKS_URL=<auth-service>/.well-known/jwks.json`. For the
 full JWT-mode setup (supported algorithms, `macp_scopes` claim shape,
 JWKS caching) see
-[`runtime/docs/getting-started.md` § JWT mode](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/getting-started.md#jwt-mode).
+[`macp-runtime/docs/getting-started.md` § JWT mode](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/getting-started.md#jwt-mode).
 
 ### Startup order
 
@@ -27,7 +27,7 @@ auth-service up
   ↓
 runtime up (with MACP_AUTH_JWKS_URL pointing at auth-service)
   ↓
-examples-service boots
+macp-playground boots
   ├─ validates MACP_AUTH_SERVICE_URL is set (fails fast otherwise)
   └─ PolicyRegistrarService.onApplicationBootstrap()
        ├─ mints admin JWT from auth-service (can_manage_mode_registry)
@@ -63,7 +63,7 @@ push to main / PR
 
 Images live at:
 ```
-ghcr.io/multiagentcoordinationprotocol/examples-service
+ghcr.io/multiagentcoordinationprotocol/macp-playground
 ```
 
 ## Deploying
@@ -73,20 +73,20 @@ Point any container platform at the GHCR image. No platform config files needed 
 ### Railway
 
 1. Create a service → set source to **Docker Image**
-2. Image: `ghcr.io/multiagentcoordinationprotocol/examples-service:latest`
+2. Image: `ghcr.io/multiagentcoordinationprotocol/macp-playground:latest`
 3. Set env vars in the Variables tab
 
 ### Render
 
 1. Create a Web Service → type **Docker Image**
-2. Image: `ghcr.io/multiagentcoordinationprotocol/examples-service:latest`
+2. Image: `ghcr.io/multiagentcoordinationprotocol/macp-playground:latest`
 3. Set env vars in the Environment tab
 
 ### Fly.io
 
 ```bash
-flyctl apps create macp-example-service
-flyctl deploy --image ghcr.io/multiagentcoordinationprotocol/examples-service:latest
+flyctl apps create macp-playground
+flyctl deploy --image ghcr.io/multiagentcoordinationprotocol/macp-playground:latest
 flyctl secrets set \
   MACP_RUNTIME_ADDRESS=runtime.internal:50051 \
   MACP_AUTH_SERVICE_URL=http://auth-service.internal:3200
@@ -102,7 +102,7 @@ flyctl secrets set \
 
 Any platform that can run a Docker image works. Point it at:
 ```
-ghcr.io/multiagentcoordinationprotocol/examples-service:latest
+ghcr.io/multiagentcoordinationprotocol/macp-playground:latest
 ```
 
 ## PR Preview Environments
@@ -110,7 +110,7 @@ ghcr.io/multiagentcoordinationprotocol/examples-service:latest
 PR builds produce images tagged `:pr-<number>`. Platforms that support preview environments can pull these for ephemeral deployments:
 
 ```
-ghcr.io/multiagentcoordinationprotocol/examples-service:pr-42
+ghcr.io/multiagentcoordinationprotocol/macp-playground:pr-42
 ```
 
 ## Environment Variables
@@ -126,7 +126,7 @@ The table below mirrors `AppConfigService` (`src/config/app-config.service.ts`) 
 | `CORS_ORIGIN` | No | `http://localhost:3000` | Comma-separated origins (supports `*` and wildcards) |
 | `NODE_ENV` | No | `development` | `development` enables Swagger at `/docs` |
 | `LOG_LEVEL` | No | `info` | |
-| `AUTH_API_KEYS` | No | — | Comma-separated keys guarding the examples-service HTTP surface |
+| `AUTH_API_KEYS` | No | — | Comma-separated keys guarding the macp-playground HTTP surface |
 
 ### Scenario registry
 
@@ -156,7 +156,7 @@ The table below mirrors `AppConfigService` (`src/config/app-config.service.ts`) 
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `CONTROL_PLANE_BASE_URL` | No | `http://localhost:3001` | Read-only observer endpoint used by the UI console. Examples-service no longer writes here (RFC-MACP-0004 §4). |
+| `CONTROL_PLANE_BASE_URL` | No | `http://localhost:3001` | Read-only observer endpoint used by the UI console. MACP Playground no longer writes here (RFC-MACP-0004 §4). |
 | `CONTROL_PLANE_API_KEY` | No | — | Bearer token for control-plane reads. |
 | `CONTROL_PLANE_TIMEOUT_MS` | No | `10000` | |
 
@@ -185,19 +185,19 @@ If the package is private, set it to **Public** (simplest), or configure pull cr
 
 ```bash
 # Use an older immutable tag
-ghcr.io/multiagentcoordinationprotocol/examples-service:sha-abc1234
+ghcr.io/multiagentcoordinationprotocol/macp-playground:sha-abc1234
 ```
 
 Or re-tag:
 ```bash
-docker pull ghcr.io/…/examples-service:sha-<old>
-docker tag  ghcr.io/…/examples-service:sha-<old> ghcr.io/…/examples-service:latest
-docker push ghcr.io/…/examples-service:latest
+docker pull ghcr.io/…/macp-playground:sha-<old>
+docker tag  ghcr.io/…/macp-playground:sha-<old> ghcr.io/…/macp-playground:latest
+docker push ghcr.io/…/macp-playground:latest
 ```
 
 ## Local Testing
 
-`docker-compose.dev.yml` wires the examples-service to the auth-service sidecar. Start the runtime separately, then:
+`docker-compose.dev.yml` wires the macp-playground to the auth-service sidecar. Start the runtime separately, then:
 
 ```bash
 docker compose -f docker-compose.dev.yml up
@@ -210,8 +210,8 @@ For a single-container smoke test without auth-service, the service will refuse 
 # In auth-service/
 npm install && npm run build && npm start  # listens on :3200
 
-# In examples-service/
+# In macp-playground/
 MACP_AUTH_SERVICE_URL=http://localhost:3200 \
 MACP_RUNTIME_ADDRESS=runtime.local:50051 \
-docker run -p 3000:3000 --env-file .env examples-service
+docker run -p 3000:3000 --env-file .env macp-playground
 ```

@@ -28,7 +28,7 @@ export class AuthTokenMinterService {
   private readonly cache = new Map<string, CacheEntry>();
   private readonly inflight = new Map<string, Promise<MintedToken>>();
 
-  // 10s buffer for clock drift between examples-service and auth-service.
+  // 10s buffer for clock drift between macp-playground and auth-service.
   private static readonly CLOCK_SKEW_MS = 10_000;
 
   constructor(private readonly config: AppConfigService) {}

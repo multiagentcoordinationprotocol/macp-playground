@@ -23,7 +23,7 @@ export interface MockAuthServiceOptions {
  * Minimal mock of the standalone auth-service `POST /tokens` endpoint used by
  * AUTH-2 integration tests. Records every request for assertion, supports
  * configurable failure / delay modes, and never requires real cryptography —
- * the mock returns an opaque string the examples-service treats as a Bearer.
+ * the mock returns an opaque string the macp-playground service treats as a Bearer.
  */
 export class MockAuthService {
   private server!: http.Server;

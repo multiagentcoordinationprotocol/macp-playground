@@ -12,10 +12,10 @@ flat and framework-agnostic; both `macp_sdk` (Python) and
 > service. For the authoritative field-by-field reference and the behaviour
 > of each field, see:
 >
-> - [TypeScript SDK — Agent Framework → fromBootstrap()](https://github.com/multiagentcoordinationprotocol/typescript-sdk/blob/main/docs/guides/agent-framework.md#frombootstrap)
-> - [Python SDK — Agent Framework](https://github.com/multiagentcoordinationprotocol/python-sdk/blob/main/docs/guides/agent-framework.md)
+> - [TypeScript SDK — Agent Framework → fromBootstrap()](https://github.com/multiagentcoordinationprotocol/macp-sdk-typescript/blob/main/docs/guides/agent-framework.md#frombootstrap)
+> - [Python SDK — Agent Framework](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/blob/main/docs/guides/agent-framework.md)
 >
-> This doc only captures how the examples-service **produces** the
+> This doc only captures how the macp-playground **produces** the
 > bootstrap (delivery, per-agent metadata, ambient-signal scope) and the
 > additional fields the service threads through `metadata` for its own
 > agents.
@@ -38,7 +38,7 @@ for the end-to-end flow.
   `src/hosting/adapters/agent-env.ts` and are intended as a convenience —
   the JSON file is authoritative.
 
-## Bootstrap payload — examples-service view
+## Bootstrap payload — macp-playground view
 
 The canonical TypeScript definition lives at
 `src/hosting/contracts/bootstrap.types.ts`. The shape uses `snake_case` keys
@@ -60,15 +60,15 @@ interface BootstrapPayload {
   policy_version?: string;
   initiator?: { session_start: { ... }; kickoff?: { ... } };
   cancel_callback?: { host: string; port: number; path: string };
-  metadata?: { /* examples-service-specific — see below */ };
+  metadata?: { /* macp-playground-specific — see below */ };
 }
 ```
 
 Refer to the SDK `fromBootstrap` doc linked above for the meaning and
-validation of every field the SDK consumes. The examples-service writes
+validation of every field the SDK consumes. The macp-playground writes
 these fields verbatim; it does not own their semantics.
 
-### `metadata.*` — examples-service additions
+### `metadata.*` — macp-playground additions
 
 These fields are **not** consumed by the SDK. They are pass-through context
 for agent logic and the in-tree `PolicyStrategy`:
@@ -100,7 +100,7 @@ map from the canonical policy descriptor.
 
 The canonical lifecycle (authenticate → branch on initiator → react →
 emit → cancel → exit) is documented in the SDK agent-framework guide. In
-the examples-service it plays out as:
+the macp-playground it plays out as:
 
 1. **Bootstrap** — worker reads `MACP_BOOTSTRAP_FILE`.
 2. **Authenticate** — SDK constructs the gRPC client from `runtime_url` +
@@ -121,20 +121,20 @@ Agents may emit envelopes that are not tied to a specific mode — e.g. the
 observes the first `Proposal`. Ambient envelopes have `mode = ""` and
 `session_id = ""` (correlation id travels in the payload). For the
 runtime to accept these, the agent's JWT must include `""` in its
-`allowed_modes` scope — the examples-service does this automatically in
+`allowed_modes` scope — the macp-playground does this automatically in
 `deriveScopes()` (`src/hosting/process-example-agent-host.provider.ts`).
 Dropping the empty string triggers `FORBIDDEN` at the runtime boundary.
 
 For the runtime-side `Signal` semantics (no session binding, not
 persisted, delivered via `WatchSignals`), see
-[`runtime/docs/API.md` § WatchSignals](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/API.md#watchsignals).
+[`macp-runtime/docs/API.md` § WatchSignals](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#watchsignals).
 
 ## SDK usage patterns
 
 Minimal handler wiring in each SDK — full API is in the SDK docs:
 
 **Python** — see
-[`python-sdk/docs/guides/agent-framework.md`](https://github.com/multiagentcoordinationprotocol/python-sdk/blob/main/docs/guides/agent-framework.md):
+[`macp-sdk-python/docs/guides/agent-framework.md`](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/blob/main/docs/guides/agent-framework.md):
 
 ```python
 from macp_sdk.agent import from_bootstrap
@@ -153,7 +153,7 @@ participant.run()
 ```
 
 **Node** — see
-[`typescript-sdk/docs/guides/agent-framework.md`](https://github.com/multiagentcoordinationprotocol/typescript-sdk/blob/main/docs/guides/agent-framework.md):
+[`macp-sdk-typescript/docs/guides/agent-framework.md`](https://github.com/multiagentcoordinationprotocol/macp-sdk-typescript/blob/main/docs/guides/agent-framework.md):
 
 ```typescript
 import { agent } from 'macp-sdk-typescript';

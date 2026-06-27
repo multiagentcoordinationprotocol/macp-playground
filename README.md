@@ -1,6 +1,6 @@
-# MACP Example Showcase Service
+# MACP Playground
 
-File-backed example showcase service for [Multi-Agent Coordination Protocol](https://github.com/multiagentcoordinationprotocol) demos, combining scenario catalog, compilation, and example-agent bootstrap in a single service.
+File-backed showcase service for [Multi-Agent Coordination Protocol](https://github.com/multiagentcoordinationprotocol) demos, combining scenario catalog, compilation, and example-agent bootstrap in a single service.
 
 > This service is a showcase/examples layer used to demonstrate scenarios and sample agents for MACP. It intentionally combines catalog, compilation, and sample agent hosting for simplicity. It is not the production system boundary.
 
@@ -159,7 +159,7 @@ This backend is designed to run alongside a Vercel-hosted frontend.
 ```
 ┌─────────────┐         ┌──────────────────────┐
 │  Vercel      │  HTTPS  │  Railway / Render     │
-│  (UI)        │────────▶│  (examples-service)   │
+│  (UI)        │────────▶│  (macp-playground)   │
 └─────────────┘         └──────────────────────┘
 ```
 

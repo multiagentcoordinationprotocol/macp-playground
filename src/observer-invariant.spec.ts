@@ -1,7 +1,7 @@
 /**
  * Observer-only invariant (RFC-MACP-0001 §5.3 + direct-agent-auth plan §Invariants 5).
  *
- * The examples-service must never emit envelopes on behalf of an agent.
+ * The macp-playground service must never emit envelopes on behalf of an agent.
  * Writes go over gRPC directly from the agent to the runtime via
  * `macp-sdk-typescript` / `macp_sdk` — never via HTTP to the control-plane.
  *

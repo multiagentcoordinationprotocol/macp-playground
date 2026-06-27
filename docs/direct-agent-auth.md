@@ -1,8 +1,8 @@
-# Direct-agent-auth in the examples-service
+# Direct-agent-auth in the macp-playground
 
 Last updated: 2026-04-22 (AUTH-2 JWT-only, PolicyRegistrar, ambient signals).
 
-This document describes how the **examples-service** spawns agents under
+This document describes how the **macp-playground** spawns agents under
 RFC-MACP-0004 §4 ("sender MUST be derived from authenticated identity"):
 how scenarios compile, how bootstrap files are written, and how the
 service registers scenario policies with the runtime at startup.
@@ -11,11 +11,11 @@ service registers scenario policies with the runtime at startup.
 > `expected_sender` guardrail, and `session.cancel()` behaviour — are
 > canonically documented in the SDK guides**, not here. See:
 >
-> - Python: [`python-sdk/docs/guides/direct-agent-auth.md`](https://github.com/multiagentcoordinationprotocol/python-sdk/blob/main/docs/guides/direct-agent-auth.md)
-> - TypeScript: [`typescript-sdk/docs/guides/authentication.md`](https://github.com/multiagentcoordinationprotocol/typescript-sdk/blob/main/docs/guides/authentication.md)
->   and [`typescript-sdk/docs/guides/agent-framework.md`](https://github.com/multiagentcoordinationprotocol/typescript-sdk/blob/main/docs/guides/agent-framework.md)
+> - Python: [`macp-sdk-python/docs/guides/direct-agent-auth.md`](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/blob/main/docs/guides/direct-agent-auth.md)
+> - TypeScript: [`macp-sdk-typescript/docs/guides/authentication.md`](https://github.com/multiagentcoordinationprotocol/macp-sdk-typescript/blob/main/docs/guides/authentication.md)
+>   and [`macp-sdk-typescript/docs/guides/agent-framework.md`](https://github.com/multiagentcoordinationprotocol/macp-sdk-typescript/blob/main/docs/guides/agent-framework.md)
 >
-> This doc covers only the **examples-service side**: how the bootstrap
+> This doc covers only the **macp-playground side**: how the bootstrap
 > is produced, how JWTs are minted, and how policies are registered.
 
 See `CLAUDE.md` § "Direct-agent-auth" for a short summary.
@@ -35,16 +35,16 @@ observer.
 2. **The initiator agent opens the session** via `DecisionSession.start()`.
 3. **The control-plane is scenario-agnostic** — it does not inspect policy hints, kickoff templates, roles, or commitments.
 4. **Control-plane never calls `Send`.** Observer-only.
-5. **session_id is owned by the examples-service** (UUID v4 allocated at compile time).
+5. **session_id is owned by the macp-playground** (UUID v4 allocated at compile time).
 6. **Cancellation stays with the initiator** (RFC-MACP-0001 §7.2 Option A: agent-bound callback).
 7. **Scenario policies are registered with the runtime at startup** by `PolicyRegistrarService`, using a separate admin JWT.
 
 For the runtime-side enforcement of invariants 1–4 (authenticated sender
 derivation, observer-identity passive-subscribe, `policy_version` lookup,
 rate limits) see
-[`runtime/docs/getting-started.md` § Authentication](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/getting-started.md#authentication)
+[`macp-runtime/docs/getting-started.md` § Authentication](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/getting-started.md#authentication)
 and
-[`runtime/docs/API.md`](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/API.md).
+[`macp-runtime/docs/API.md`](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md).
 
 ## Compile output (twin artifacts)
 
@@ -71,7 +71,7 @@ For the field-by-field reference see
 [`docs/worker-bootstrap-contract.md`](worker-bootstrap-contract.md), which
 itself defers to the SDK `fromBootstrap()` docs for the SDK-owned fields.
 
-Summary of the fields the examples-service is responsible for populating:
+Summary of the fields the macp-playground is responsible for populating:
 
 - `runtime_url` — gRPC endpoint (from `MACP_RUNTIME_ADDRESS`).
 - `auth_token` — the Bearer JWT minted for this specific agent.
@@ -82,9 +82,9 @@ Summary of the fields the examples-service is responsible for populating:
 ## End-to-end flow
 
 ```
-UI → examples-service: POST /examples/run
+UI → macp-playground: POST /examples/run
   ↓
-examples-service compiles scenario → { runDescriptor, executionRequest, initiator, sessionId }
+macp-playground compiles scenario → { runDescriptor, executionRequest, initiator, sessionId }
   ↓
 For each participant:
   ├─ AuthTokenMinterService.mintToken(sender, scopes)  ← POST /tokens to auth-service
@@ -144,7 +144,7 @@ Content-Type: application/json
 
 Both SDKs bind the Bearer token to the gRPC channel once at stream open
 and the runtime captures `AuthIdentity` once per stream (see
-[`runtime/docs/architecture.md` § Auth Layer](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/architecture.md#layers)).
+[`macp-runtime/docs/architecture.md` § Auth Layer](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/architecture.md#layers)).
 There is no refresh callback in either SDK.
 
 **Consequences:**
@@ -165,7 +165,7 @@ When `REGISTER_POLICIES_ON_LAUNCH=true` (the default) and `MACP_RUNTIME_ADDRESS`
 is set, `PolicyRegistrarService.onApplicationBootstrap()` runs once per process
 start:
 
-1. Mints an admin JWT from the auth-service with `sender=examples-service` and scopes `{ can_manage_mode_registry: true, is_observer: false, allowed_modes: ['*'] }`.
+1. Mints an admin JWT from the auth-service with `sender=macp-playground` and scopes `{ can_manage_mode_registry: true, is_observer: false, allowed_modes: ['*'] }`.
 2. Opens a short-lived gRPC channel to the runtime using that JWT.
 3. For each non-default policy loaded by `PolicyLoaderService`, calls `MacpClient.registerPolicy(descriptor)`.
 4. Treats errors whose message contains `"already"` as idempotent success.
@@ -197,22 +197,22 @@ when the proposal is first observed. Ambient envelopes have:
 - `session_id = ""` (correlation id travels in the payload instead)
 
 For the runtime's mode-authorization check to accept these, the agent's JWT
-must include `""` in `allowed_modes`. The examples-service does this
+must include `""` in `allowed_modes`. The macp-playground does this
 automatically in `deriveScopes()` — every agent mint ends with
 `allowed_modes: [context.modeName, '']`. Removing the empty string breaks
 ambient emission at the runtime boundary with `FORBIDDEN`.
 
 For the runtime-side handling (broadcast via `WatchSignals`, no session
 history) see
-[`runtime/docs/API.md` § WatchSignals](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/API.md#watchsignals).
+[`macp-runtime/docs/API.md` § WatchSignals](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#watchsignals).
 
 ## Deployment checklist
 
 1. Run the auth-service (see `docker-compose.dev.yml` for a dev topology).
 2. Configure the runtime with `MACP_AUTH_ISSUER`, `MACP_AUTH_AUDIENCE`, and `MACP_AUTH_JWKS_URL=<auth-service>/.well-known/jwks.json` — see
-   [`runtime/docs/deployment.md`](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/deployment.md)
+   [`macp-runtime/docs/deployment.md`](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/deployment.md)
    for the full runtime deployment reference.
-3. Set on the examples-service:
+3. Set on the macp-playground:
    - `MACP_AUTH_SERVICE_URL=http://auth-service:3200` (required, fails fast).
    - `MACP_RUNTIME_ADDRESS=runtime.local:50051` (required for runs).
    - `MACP_AUTH_TOKEN_TTL_SECONDS` ≥ worst-case run length.
@@ -228,13 +228,13 @@ history) see
 
 This plan has matching tasks in:
 
-- `python-sdk` — PY-1..6 (secure default, `expected_sender`, publish). **Done upstream** (v0.2.0 features present in-tree).
-- `typescript-sdk` — TS-1..5 (secure default, `expectedSender`). **Done upstream** (v0.2.0 features present in-tree). v0.3.0 added the auto-binding cancel-callback listener so the worker no longer hand-rolls one.
-- `control-plane` — CP-1..15 (RunDescriptor contract, sessionId response, delete forged-envelope paths, observer-mode). **Not yet landed** — the examples-service continues to POST `executionRequest` until CP-1 ships.
-- `ui-console` — UI-1..5 (remove operator inject panel). Independent of examples-service.
+- `macp-sdk-python` — PY-1..6 (secure default, `expected_sender`, publish). **Done upstream** (v0.2.0 features present in-tree).
+- `macp-sdk-typescript` — TS-1..5 (secure default, `expectedSender`). **Done upstream** (v0.2.0 features present in-tree). v0.3.0 added the auto-binding cancel-callback listener so the worker no longer hand-rolls one.
+- `macp-control-plane` — CP-1..15 (RunDescriptor contract, sessionId response, delete forged-envelope paths, observer-mode). **Not yet landed** — the macp-playground continues to POST `executionRequest` until CP-1 ships.
+- `macp-ui-console` — UI-1..5 (remove operator inject panel). Independent of macp-playground.
 
 ## Forward-compat notes
 
 - The `executionRequest.session.metadata.sessionId` carries the compiled `sessionId`, so observer tooling that reads metadata already sees the same id as the agents.
 - `runDescriptor` is produced on every compile and returned in the `CompileLaunchResult`. Callers consume it directly — there is no legacy `executionRequest` shape.
-- The examples-service no longer ships a control-plane HTTP client (`src/control-plane/control-plane.client.ts` was removed during the direct-agent-auth rollout). If a future revision re-introduces a control-plane submit step, add a new module under `src/control-plane/` rather than reviving the old shape.
+- The macp-playground no longer ships a control-plane HTTP client (`src/control-plane/control-plane.client.ts` was removed during the direct-agent-auth rollout). If a future revision re-introduces a control-plane submit step, add a new module under `src/control-plane/` rather than reviving the old shape.

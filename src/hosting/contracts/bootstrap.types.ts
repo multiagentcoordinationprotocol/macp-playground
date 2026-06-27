@@ -1,8 +1,8 @@
 /**
- * Flat bootstrap payload written by the examples-service for each spawned agent.
+ * Flat bootstrap payload written by the macp-playground service for each spawned agent.
  *
  * This format matches what both `macp_sdk` (Python) and `macp-sdk-typescript`
- * expect in their `fromBootstrap()` functions. The examples-service is the
+ * expect in their `fromBootstrap()` functions. The macp-playground service is the
  * single source of truth for this file — agents read it directly via the
  * `MACP_BOOTSTRAP_FILE` environment variable.
  */

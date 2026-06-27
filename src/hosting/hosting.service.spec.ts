@@ -92,7 +92,7 @@ describe('HostingService', () => {
     expect(hostedParticipants[3].participantMetadata.attachedRunId).toBe('run-1');
   });
 
-  // RFC-MACP-0004 §4: the examples-service pre-allocates a single sessionId and
+  // RFC-MACP-0004 §4: the macp-playground service pre-allocates a single sessionId and
   // threads it into every AgentBootstrap. If attach() regressed to minting a
   // per-participant sessionId (for example by calling randomUUID() inside the
   // loop), agents would each join a different session. This test pins down the

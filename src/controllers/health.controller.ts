@@ -7,6 +7,6 @@ export class HealthController {
   @Get('healthz')
   @ApiOperation({ summary: 'Liveness probe.' })
   healthz() {
-    return { ok: true, service: 'macp-example-service' };
+    return { ok: true, service: 'macp-playground' };
   }
 }

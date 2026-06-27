@@ -5,9 +5,9 @@ This guide explains how to add support for a new agent framework (e.g., AutoGen,
 > Worker-side details — the `Participant` lifecycle, `ctx.actions` API,
 > handler dispatch, and `fromBootstrap()` semantics — are canonically
 > documented in the SDK guides
-> ([Python](https://github.com/multiagentcoordinationprotocol/python-sdk/blob/main/docs/guides/agent-framework.md),
-> [TypeScript](https://github.com/multiagentcoordinationprotocol/typescript-sdk/blob/main/docs/guides/agent-framework.md)).
-> This guide only covers the examples-service wiring (adapter, catalog
+> ([Python](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/blob/main/docs/guides/agent-framework.md),
+> [TypeScript](https://github.com/multiagentcoordinationprotocol/macp-sdk-typescript/blob/main/docs/guides/agent-framework.md)).
+> This guide only covers the macp-playground wiring (adapter, catalog
 > entry, manifest, tests).
 
 ## Step 1: Create a Host Adapter
@@ -129,7 +129,7 @@ if __name__ == "__main__":
 ```
 
 See the SDK agent-framework guides linked at the top of this doc for the
-full `Participant` / `ctx.actions` surface. The examples-service itself
+full `Participant` / `ctx.actions` surface. The macp-playground itself
 does not own that contract.
 
 ### Emitting ambient Signal / Progress envelopes (optional)

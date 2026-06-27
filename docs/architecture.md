@@ -1,16 +1,16 @@
 # Architecture
 
-> This page covers only the examples-service internals (catalog, compiler,
+> This page covers only the macp-playground internals (catalog, compiler,
 > hosting). For the MACP runtime's own architecture — layer structure,
 > request flow, durability model, and mode/policy registries — see the
 > canonical doc:
-> [`runtime/docs/architecture.md`](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/architecture.md).
+> [`macp-runtime/docs/architecture.md`](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/architecture.md).
 > For protocol-level concepts (sessions, modes, two-plane model) see the
 > [protocol docs](https://www.multiagentcoordinationprotocol.io/docs).
 
 ## Overview
 
-The MACP Example Showcase Service is a single NestJS service that intentionally combines three responsibilities for demo simplicity:
+The MACP Playground is a single NestJS service that intentionally combines three responsibilities for demo simplicity:
 
 1. **Catalog** — browse example scenario packs and their versions
 2. **Compiler** — validate user inputs and compile them into two artifacts: a scenario-agnostic `RunDescriptor` for the control-plane and a scenario-specific payload (`scenarioSpec` + per-agent `AgentBootstrap`) for the agents themselves.
@@ -24,9 +24,9 @@ In a production deployment, these three things are separate:
 
 | Concern | Demo (this service) | Production |
 |---------|-------------------|------------|
-| Scenario catalog | Example Showcase Service | Scenario Registry |
-| Compilation | Example Showcase Service | Scenario Registry or Control Plane |
-| Agent hosting | Example Showcase Service | Agent Platform / Runtime |
+| Scenario catalog | MACP Playground | Scenario Registry |
+| Compilation | MACP Playground | Scenario Registry or Control Plane |
+| Agent hosting | MACP Playground | Agent Platform / Runtime |
 | Run lifecycle | Control Plane | Control Plane |
 | Coordination | MACP Runtime | MACP Runtime |
 
@@ -60,7 +60,7 @@ src/
 ```
 
 Note: `src/control-plane/` was removed during the direct-agent-auth rollout
-(April 2026). The examples-service no longer has a runtime dependency on the
+(April 2026). The macp-playground no longer has a runtime dependency on the
 control-plane's HTTP API — runs are initiated by spawning agents that connect
 directly to the MACP runtime over gRPC.
 
@@ -175,7 +175,7 @@ The example agents use an **active process-backed** hosting strategy with direct
 
 - Service resolves agent definitions from a hard-coded catalog (fraud, growth, compliance, risk)
 - Transport identities are injected into the compiled `scenarioSpec` participants
-- The examples-service pre-allocates a UUID v4 `sessionId` at compile time and threads it into every agent bootstrap
+- The macp-playground pre-allocates a UUID v4 `sessionId` at compile time and threads it into every agent bootstrap
 - Lightweight Python and Node worker processes are spawned with per-agent bootstrap files (`MACP_BOOTSTRAP_FILE`)
 - Workers read the bootstrap to obtain their own runtime gRPC address + Bearer token and open a dedicated gRPC channel via `macp-sdk` / `macp-sdk-typescript`
 - Workers emit envelopes (Proposal / Evaluation / Vote / Commitment / Objection / SessionStart / cancellation) via the SDK mode-helpers directly to the runtime — the control-plane never writes on their behalf

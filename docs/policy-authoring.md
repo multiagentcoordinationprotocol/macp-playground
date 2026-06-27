@@ -1,12 +1,12 @@
 # Policy Authoring Guide
 
-Policies define the governance rules that control how specialist agent signals (evaluations and objections) are aggregated into final decisions during MACP coordination runs. This guide explains how the **examples-service** loads policies, how they flow to spawned agents, and how to author new ones for demo scenarios.
+Policies define the governance rules that control how specialist agent signals (evaluations and objections) are aggregated into final decisions during MACP coordination runs. This guide explains how the **macp-playground** loads policies, how they flow to spawned agents, and how to author new ones for demo scenarios.
 
 > **Canonical rule schema, voting algorithms, veto/confidence/ABSTAIN
 > mechanics, and commitment-authority semantics live in the runtime docs
-> — not here.** See [`runtime/docs/policy.md`](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/policy.md)
+> — not here.** See [`macp-runtime/docs/policy.md`](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md)
 > for the full schema and behavioural reference. This guide covers only
-> the examples-service-specific plumbing (loading, registration, hints
+> the macp-playground-specific plumbing (loading, registration, hints
 > mapping, scenario wiring).
 
 ## Policy JSON Schema (at a glance)
@@ -28,7 +28,7 @@ Every policy under `policies/*.json` follows the runtime's
 For the full field reference (voting algorithms, thresholds, quorum
 shapes, objection handling, evaluation confidence, commitment authority,
 rule-level validation errors) see the canonical runtime doc linked
-above. The examples-service does not re-document or alter any of those
+above. The macp-playground does not re-document or alter any of those
 semantics — it just registers whatever descriptors live on disk.
 
 ## Included Policies
@@ -66,7 +66,7 @@ The default template uses `policy.default` which requires no registration.
 
 ### Policy Hints
 
-`policyHints` are an examples-service-specific denormalized projection
+`policyHints` are an macp-playground-specific denormalized projection
 of the policy's rules that agents consume at bootstrap time. They are
 never sent to the runtime or the control-plane — only to the in-tree
 `PolicyStrategy` used by the Risk coordinator. The runtime evaluates
@@ -104,12 +104,12 @@ Flow (`src/policy/policy-registrar.service.ts`):
 
 1. `PolicyLoaderService.listRegistrablePolicies()` returns every policy whose
    `policy_id` is not `policy.default`.
-2. `AuthTokenMinterService.mintToken("examples-service", { can_manage_mode_registry: true, is_observer: false, allowed_modes: ["*"] })`
+2. `AuthTokenMinterService.mintToken("macp-playground", { can_manage_mode_registry: true, is_observer: false, allowed_modes: ["*"] })`
    mints an admin JWT from the auth-service.
 3. The registrar opens a short-lived gRPC channel to the runtime using that
    JWT and calls `MacpClient.registerPolicy(descriptor)` for each policy.
    (For the wire contract of `RegisterPolicy`, see
-   [`runtime/docs/API.md`](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/API.md#registerpolicy).)
+   [`macp-runtime/docs/API.md`](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#registerpolicy).)
 4. Errors whose message contains `"already"` are treated as idempotent
    success (the runtime signals a duplicate).
 5. On completion, logs
@@ -175,7 +175,7 @@ the governance thresholds finalizes promptly as `cancelled` rather than hanging.
 }
 ```
 
-Refer to [`runtime/docs/policy.md`](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/policy.md)
+Refer to [`macp-runtime/docs/policy.md`](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md)
 for the legal values of each rule field.
 
 2. **Reference it in a scenario template:**
@@ -208,7 +208,7 @@ the session with `UNKNOWN_POLICY_VERSION`.
 Checklist:
 
 1. **Startup logs.** Look for `policy_registration_complete` on the most
-   recent examples-service boot. If you see
+   recent macp-playground boot. If you see
    `policy registration aborted: failed to mint admin JWT`, fix the
    auth-service connection (`MACP_AUTH_SERVICE_URL`, network reachability,
    JWKS on the runtime).
@@ -220,9 +220,9 @@ Checklist:
    matching `MACP_AUTH_ISSUER` / `MACP_AUTH_AUDIENCE`. A mismatch rejects
    the admin JWT at the runtime boundary, which logs as
    `policy_register_exception`. See
-   [`runtime/docs/getting-started.md` § Authentication](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/getting-started.md#authentication)
+   [`macp-runtime/docs/getting-started.md` § Authentication](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/getting-started.md#authentication)
    for the full JWT setup.
-4. **Manual re-register.** Restart the examples-service once the
+4. **Manual re-register.** Restart the macp-playground once the
    auth-service is healthy — registration is idempotent, so any
    already-registered policies come back as `already` in the log summary.
 
@@ -241,5 +241,5 @@ happens at the runtime during `RegisterPolicy` — if a descriptor passes
 local load but fails at the runtime, the registrar logs
 `policy_register_exception` with the runtime's `INVALID_POLICY_DEFINITION`
 reason. See
-[`runtime/docs/policy.md` § Registering a policy](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/policy.md#registering-a-policy)
+[`macp-runtime/docs/policy.md` § Registering a policy](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md#registering-a-policy)
 for the validation rules the runtime enforces.

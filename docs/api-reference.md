@@ -21,7 +21,7 @@ Liveness probe.
 
 **Response:** `200`
 ```json
-{ "ok": true, "service": "macp-example-service" }
+{ "ok": true, "service": "macp-playground" }
 ```
 
 ## Catalog

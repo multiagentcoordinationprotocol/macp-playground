@@ -3,9 +3,9 @@
  * accepted by the control-plane's `POST /runs` and `POST /runs/validate`
  * (control-plane commit 2026-04-15, plan CP-1). The control-plane rejects
  * unknown keys via `forbidNonWhitelisted: true`, so this shape MUST stay in
- * lockstep with `control-plane/src/dto/execution-request.dto.ts`.
+ * lockstep with `macp-control-plane/src/dto/execution-request.dto.ts`.
  *
- * See `ui-console/plans/direct-agent-auth.md` § "Generic contracts".
+ * See `macp-ui-console/plans/direct-agent-auth.md` § "Generic contracts".
  */
 export interface RunDescriptor {
   mode: 'live' | 'sandbox';

@@ -49,7 +49,7 @@ async function bootstrap() {
 
   if (config.isDevelopment) {
     const swagger = new DocumentBuilder()
-      .setTitle('MACP Example Showcase Service')
+      .setTitle('MACP Playground')
       .setDescription('File-backed showcase catalog, compiler, and example-agent bootstrap service for MACP demos.')
       .setVersion('0.2.0')
       .build();

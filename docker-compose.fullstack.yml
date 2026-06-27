@@ -6,12 +6,12 @@
 # observed by the control-plane.
 #
 # Auth: JWT throughout. auth-service mints RS256 JWTs; the runtime validates
-# them via the auth-service JWKS (issuer/audience must match). examples-service
+# them via the auth-service JWKS (issuer/audience must match). macp-playground
 # mints a per-agent JWT on every spawn; the control-plane mints an observer JWT.
 #
 # Prereqs (images built locally):
 #   macp-runtime:0.1.3  macp-control-plane:0.1.3
-#   macp-auth-service:0.1.3  macp-examples-service:0.4.0
+#   macp-auth-service:0.1.3  macp-playground:0.4.0
 #
 # Run:  OPENAI_API_KEY=sk-... docker compose -f docker-compose.fullstack.yml up
 
@@ -72,7 +72,7 @@ services:
       postgres:
         condition: service_healthy
 
-  control-plane:
+  macp-control-plane:
     image: macp-control-plane:0.1.3
     ports:
       - '3001:3001'
@@ -82,7 +82,7 @@ services:
       RUNTIME_ADDRESS: runtime:50051
       RUNTIME_TLS: 'false'
       RUNTIME_ALLOW_INSECURE: 'true'
-      RUNTIME_DEV_AGENT_ID: control-plane
+      RUNTIME_DEV_AGENT_ID: macp-control-plane
       MACP_AUTH_SERVICE_URL: http://auth-service:3200
       # Production guards: the CP refuses to boot without these set.
       AUTH_API_KEYS: demo-key
@@ -97,8 +97,8 @@ services:
       auth-service:
         condition: service_healthy
 
-  example-service:
-    image: macp-examples-service:0.4.0
+  macp-playground:
+    image: macp-playground:0.4.0
     ports:
       - '3000:3000'
     environment:
@@ -116,7 +116,7 @@ services:
       # AUTH-2: every spawn mints a JWT via the auth-service.
       MACP_AUTH_SERVICE_URL: http://auth-service:3200
       MACP_AUTH_TOKEN_TTL_SECONDS: '3600'
-      CONTROL_PLANE_BASE_URL: http://control-plane:3001
+      CONTROL_PLANE_BASE_URL: http://macp-control-plane:3001
       # Real LLM key — agents (LangGraph/LangChain/CrewAI) call OpenAI.
       OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY in the environment}
     depends_on:
