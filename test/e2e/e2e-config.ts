@@ -44,8 +44,6 @@ export function buildE2eConfig(overrides: Record<string, unknown> = {}): Record<
     port: 0,
     host: '0.0.0.0',
     logLevel: 'error',
-    controlPlaneBaseUrl: 'http://localhost:3001',
-    controlPlaneTimeoutMs: 1000,
     autoBootstrapExampleAgents: true,
     registerPoliciesOnLaunch: false,
     exampleAgentPythonPath: 'python3',

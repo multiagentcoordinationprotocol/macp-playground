@@ -82,9 +82,6 @@ export class AppConfigService implements OnModuleInit {
   readonly authApiKeys = readStringList('AUTH_API_KEYS');
   readonly logLevel = process.env.LOG_LEVEL ?? 'info';
 
-  readonly controlPlaneBaseUrl = process.env.CONTROL_PLANE_BASE_URL ?? 'http://localhost:3001';
-  readonly controlPlaneApiKey = process.env.CONTROL_PLANE_API_KEY;
-  readonly controlPlaneTimeoutMs = readNumber('CONTROL_PLANE_TIMEOUT_MS', 10000);
   readonly autoBootstrapExampleAgents = readBoolean('AUTO_BOOTSTRAP_EXAMPLE_AGENTS', true);
   readonly registerPoliciesOnLaunch = readBoolean('REGISTER_POLICIES_ON_LAUNCH', true);
   readonly exampleAgentPythonPath = process.env.EXAMPLE_AGENT_PYTHON_PATH ?? 'python3';
@@ -137,7 +134,6 @@ export class AppConfigService implements OnModuleInit {
   onModuleInit(): void {
     this.logger.log(`packs directory: ${this.packsDir}`);
     this.logger.log(`cache TTL: ${this.registryCacheTtlMs}ms`);
-    this.logger.log(`control plane: ${this.controlPlaneBaseUrl}`);
     this.logger.log(`runtime: ${this.runtimeAddress || '(unset)'}`);
     if (!this.runtimeTls && !this.runtimeAllowInsecure) {
       this.logger.warn(

@@ -11,7 +11,6 @@ services:
     environment:
       NODE_ENV: development
       REGISTRY_CACHE_TTL_MS: '0'
-      CONTROL_PLANE_BASE_URL: 'http://host.docker.internal:3001'
       AUTO_BOOTSTRAP_EXAMPLE_AGENTS: 'true'
       EXAMPLE_AGENT_PYTHON_PATH: python3
       # AUTH-2: every spawn mints a JWT via the auth-service sidecar below.
