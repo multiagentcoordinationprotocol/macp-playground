@@ -37,7 +37,7 @@ macp-playground boots
 ready to accept POST /examples/run
 ```
 
-If any of these fail, `/examples/run` will surface `AUTH_MINT_FAILED` (502) or `CONTROL_PLANE_UNAVAILABLE` (502) at request time rather than at boot — watch the startup logs for `PolicyRegistrarService` warnings.
+If any of these fail, `/examples/run` will surface `AUTH_MINT_FAILED` (502) at request time rather than at boot — watch the startup logs for `PolicyRegistrarService` warnings.
 
 ## Pipeline
 
@@ -151,14 +151,6 @@ The table below mirrors `AppConfigService` (`src/config/app-config.service.ts`) 
 | `MACP_AUTH_SERVICE_TIMEOUT_MS` | No | `5000` | HTTP timeout for `POST /tokens`. |
 | `MACP_AUTH_TOKEN_TTL_SECONDS` | No | `3600` | TTL requested from auth-service on every mint. Must exceed the agent's gRPC stream lifetime (SDKs bind auth once at stream open). Capped by auth-service `MACP_AUTH_MAX_TTL_SECONDS`. |
 | `MACP_AUTH_SCOPES_JSON` | No | _(empty)_ | Per-sender scope overrides, JSON `{"sender":{"can_start_sessions":true,...}}`. Deep-merged onto role-derived defaults; explicit `null` clears a key. |
-
-### Control-plane (observer)
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `CONTROL_PLANE_BASE_URL` | No | `http://localhost:3001` | Read-only observer endpoint used by the UI console. MACP Playground no longer writes here (RFC-MACP-0004 §4). |
-| `CONTROL_PLANE_API_KEY` | No | — | Bearer token for control-plane reads. |
-| `CONTROL_PLANE_TIMEOUT_MS` | No | `10000` | |
 
 ### Policy registration
 

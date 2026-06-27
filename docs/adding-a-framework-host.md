@@ -38,7 +38,6 @@ export class MyFrameworkHostAdapter implements AgentHostAdapter {
       env: {
         ...process.env as Record<string, string>,
         MACP_BOOTSTRAP_FILE: '',
-        MACP_CONTROL_PLANE_URL: bootstrap.runtime.baseUrl,
         MACP_FRAMEWORK: 'myframework',
         MACP_PARTICIPANT_ID: bootstrap.participant.participantId,
         MACP_RUN_ID: bootstrap.run.runId,

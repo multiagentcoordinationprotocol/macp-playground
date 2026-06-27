@@ -145,8 +145,6 @@ See [`docs/scenario-authoring.md`](docs/scenario-authoring.md) for the full YAML
 | `PORT` | 3000 | HTTP port |
 | `PACKS_DIR` | ./packs | Path to pack YAML files |
 | `REGISTRY_CACHE_TTL_MS` | 0 | Cache TTL (0 = reload every request) |
-| `CONTROL_PLANE_BASE_URL` | http://localhost:3001 | Control plane endpoint |
-| `CONTROL_PLANE_API_KEY` | (empty) | Bearer token for control plane |
 | `AUTO_BOOTSTRAP_EXAMPLE_AGENTS` | true | Auto-bootstrap agents on /examples/run |
 | `NODE_ENV` | development | Set to enable Swagger at /docs |
 | `CORS_ORIGIN` | http://localhost:3000 | Comma-separated origins (supports `*` wildcards) |

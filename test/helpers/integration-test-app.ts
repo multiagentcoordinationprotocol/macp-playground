@@ -23,9 +23,6 @@ export interface IntegrationTestContext {
 
 export async function createIntegrationTestApp(
   overrides?: Partial<{
-    controlPlaneBaseUrl: string;
-    controlPlaneApiKey: string;
-    controlPlaneTimeoutMs: number;
     autoBootstrapExampleAgents: boolean;
     authApiKeys: string[];
     mockControlPlaneOptions: { requiredBearerToken?: string };
@@ -43,20 +40,12 @@ export async function createIntegrationTestApp(
   const controlPlaneMode = (process.env.INTEGRATION_CONTROL_PLANE ?? 'mock') as ControlPlaneMode;
   const fixturesPacksDir = path.resolve(__dirname, '../fixtures/packs');
 
+  // The MockControlPlane is retained for observer-style assertions only; the
+  // playground no longer issues any control-plane HTTP calls (RFC-MACP-0004 §4).
   let mockControlPlane: MockControlPlane | null = null;
-  let controlPlaneBaseUrl: string;
-  let controlPlaneApiKey: string | undefined;
-
   if (controlPlaneMode === 'mock') {
     mockControlPlane = new MockControlPlane(overrides?.mockControlPlaneOptions);
     await mockControlPlane.start();
-    controlPlaneBaseUrl = overrides?.controlPlaneBaseUrl ?? mockControlPlane.baseUrl;
-    controlPlaneApiKey = overrides?.controlPlaneApiKey;
-  } else {
-    controlPlaneBaseUrl =
-      overrides?.controlPlaneBaseUrl ?? process.env.CONTROL_PLANE_BASE_URL ?? 'http://localhost:3001';
-    controlPlaneApiKey = overrides?.controlPlaneApiKey ?? process.env.CONTROL_PLANE_API_KEY;
-    mockControlPlane = null;
   }
 
   let builder = Test.createTestingModule({ imports: [AppModule] });
@@ -87,9 +76,6 @@ export async function createIntegrationTestApp(
       port: 0,
       host: '0.0.0.0',
       logLevel: 'warn',
-      controlPlaneBaseUrl,
-      controlPlaneApiKey,
-      controlPlaneTimeoutMs: overrides?.controlPlaneTimeoutMs ?? 5000,
       autoBootstrapExampleAgents: overrides?.autoBootstrapExampleAgents ?? true,
       registerPoliciesOnLaunch: true,
       exampleAgentPythonPath: 'python3',

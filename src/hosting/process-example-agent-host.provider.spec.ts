@@ -82,9 +82,6 @@ describe('ProcessExampleAgentHostProvider', () => {
     config = {
       exampleAgentPythonPath: 'python3',
       exampleAgentNodePath: '/usr/local/bin/node',
-      controlPlaneBaseUrl: 'http://localhost:3001',
-      controlPlaneApiKey: 'test-key',
-      controlPlaneTimeoutMs: 10000,
       runtimeAddress: '',
       runtimeTls: true,
       runtimeAllowInsecure: false,
