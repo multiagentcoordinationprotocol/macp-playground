@@ -11,7 +11,11 @@
     "python": "python3",
     "cwd": ".",
     "env": {
-      "PYTHONUNBUFFERED": "1"
+      "PYTHONUNBUFFERED": "1",
+      "CREWAI_TESTING": "true",
+      "CREWAI_TRACING_ENABLED": "false",
+      "CREWAI_DISABLE_TELEMETRY": "true",
+      "OTEL_SDK_DISABLED": "true"
     },
     "startupTimeoutMs": 45000
   },
