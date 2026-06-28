@@ -28,6 +28,22 @@ def _is_session_closed(err: MacpAckError) -> bool:
     return any(code in msg for code in _TERMINAL_ACK_CODES)
 
 
+def _eval_recommendation(recommendation: str) -> str:
+    """Map an agent's free-form recommendation onto the runtime's accepted
+    Evaluation enum (RFC-MACP-0004: APPROVE | REVIEW | BLOCK | REJECT).
+    Preserves the approve/reject signal so the evaluation can satisfy
+    confidence-gated policies; unknown/uncertain values fall back to the
+    informational REVIEW (which the runtime treats as non-qualifying)."""
+    rec = (recommendation or "").upper()
+    if rec in ("APPROVE", "ALLOW", "ACCEPT", "PASS"):
+        return "APPROVE"
+    if rec in ("REJECT", "DENY", "DECLINE", "FAIL"):
+        return "REJECT"
+    if rec in ("BLOCK", "VETO"):
+        return "BLOCK"
+    return "REVIEW"
+
+
 def _safe_emit(actions, message_type: str, payload):
     try:
         env = build_envelope(
@@ -146,6 +162,25 @@ def main() -> int:
                 "summary": f"recommendation={recommendation} confidence={confidence:.2f}",
             },
         )
+
+        # Emit an Evaluation before voting. Decision policies may require
+        # qualifying evaluations before a commitment is allowed (RFC-MACP-0007;
+        # e.g. lending.conservative minimum_confidence=0.6, fraud.unanimous=0.7).
+        # The runtime keys that check on Evaluation messages, not Votes/Signals,
+        # so without this the commit is denied ("no qualifying evaluation meets
+        # minimum confidence threshold") even on unanimous approval and the run
+        # is cancelled. We already have the recommendation + confidence here.
+        # Normalize to the runtime's accepted enum (RFC-MACP-0004: APPROVE |
+        # REVIEW | BLOCK | REJECT) and clamp confidence to [0,1] so the envelope
+        # is valid. Best-effort: a rejected/closed evaluation must never crash
+        # the agent before it votes.
+        eval_recommendation = _eval_recommendation(recommendation)
+        eval_confidence = max(0.0, min(1.0, confidence))
+        try:
+            ctx.actions.evaluate(proposal_id, eval_recommendation, confidence=eval_confidence, reason=reason)
+            logger.info("evaluation sent proposalId=%s recommendation=%s confidence=%.2f", proposal_id, eval_recommendation, eval_confidence)
+        except MacpAckError as err:
+            logger.info("growth evaluation skipped proposalId=%s err=%s", proposal_id, err)
 
         vote = "APPROVE" if recommendation in ("APPROVE", "ALLOW", "REVIEW") else "REJECT"
         emit_progress(ctx.actions, 0.75, f"voting {vote}")
