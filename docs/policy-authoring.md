@@ -144,8 +144,30 @@ otherwise linger until TTL expiry. To keep the demo deterministic, the
 terminal **`CANCELLED`** state via `participant.client.cancelSession()`
 (proto 0.1.3 / `macp-sdk-typescript` 0.4.0). The control-plane observer maps the
 resulting `CANCELLED` lifecycle event to a `cancelled` run status — distinct
-from a TTL `EXPIRED` run. This means a run whose real-agent inputs don't satisfy
-the governance thresholds finalizes promptly as `cancelled` rather than hanging.
+from a TTL `EXPIRED` run.
+
+### Outcome-aware commits: a decline can *resolve* instead of being denied
+
+As of `macp-runtime` PR #39 the Decision commitment evaluator is **outcome-aware**,
+so `POLICY_DENIED` → `CANCELLED` is **not** the universal result:
+
+- A **negative (decline) commitment** (`outcome_positive = false`) backed by **at
+  least one explicit reject vote** now **finalizes and resolves** the session
+  directly — no `POLICY_DENIED`, and the `cancelSession` fallback does **not**
+  fire. The control-plane observer records a decided-and-**declined** outcome with
+  run status **`completed`** (not `cancelled`). This is the common path for a
+  reject-majority fraud/lending/claims decision.
+- The `POLICY_DENIED` → `CANCELLED` fallback above still applies to **genuine
+  denials**: an **approve-side** commit short of quorum/confidence, a **decline
+  with no explicit reject** vote, or a policy that sets
+  `objection_handling.critical_objection_action: "hold"`.
+
+The reject-majority decline-resolves behavior applies to **any** bound Decision
+policy with a real voting algorithm, independent of `schema_version` — so the
+bundled `schema_version: 1` policies get it automatically. `schema_version: 2` is
+the spec-canonical version that additionally carries the optional decline-gating
+fields (`objection_handling.critical_objection_action`,
+`commitment.allow_decline_over_approval`); the runtime accepts both `1` and `2`.
 
 ## Creating a Custom Policy
 

@@ -247,11 +247,16 @@ async function main(): Promise<void> {
       log('commitment send failed', { error: message });
 
       // The runtime's policy engine can reject a commit (RFC-MACP-0012) — e.g.
-      // votes short of quorum or evaluations under the confidence floor. A
-      // rejected commit leaves no terminal commitment, so the session would
-      // otherwise linger until TTL expiry. Drive it to an explicit terminal
-      // CANCELLED state (proto 0.1.3 / macp-sdk-typescript 0.4.0) instead, so
-      // observers see a deterministic outcome distinct from TTL EXPIRED.
+      // votes short of quorum or evaluations under the confidence floor. Note the
+      // outcome-aware runtime (macp-runtime PR #39) now *resolves* a reject-majority
+      // decline (a negative commit backed by an explicit reject), so that path does
+      // NOT reach here; this fallback handles only genuine denials — an approve-side
+      // commit short of quorum/confidence, a decline with no explicit reject, or a
+      // policy with objection_handling.critical_objection_action = "hold". A rejected
+      // commit leaves no terminal commitment, so the session would otherwise linger
+      // until TTL expiry. Drive it to an explicit terminal CANCELLED state (proto
+      // 0.1.3 / macp-sdk-typescript 0.4.0) instead, so observers see a deterministic
+      // outcome distinct from TTL EXPIRED.
       const sessionId = bootstrap.session_id ?? '';
       if (sessionId) {
         try {
