@@ -121,6 +121,32 @@ async function driveToCommit(commitImpl: jest.Mock): Promise<{ commit: jest.Mock
   return { commit: ctx.actions.commit, vote: ctx.actions.vote };
 }
 
+// Drive both specialists to BLOCK so the coordinator's policy strategy returns a
+// `decline` (vote `reject`). Under the outcome-aware runtime (macp-runtime PR #39),
+// a reject-majority decline commit — one backed by at least one explicit reject —
+// *resolves* the session (`outcome_positive = false`) instead of `POLICY_DENIED`.
+// `commitImpl` therefore models the runtime ACCEPTING that negative commitment.
+async function driveToDecline(commitImpl: jest.Mock): Promise<{ commit: jest.Mock; vote: jest.Mock }> {
+  const ctx = {
+    actions: {
+      vote: jest.fn().mockResolvedValue(undefined),
+      commit: commitImpl
+    }
+  };
+  const onProposal = getHandler('Proposal');
+  const onEvaluation = getHandler('Evaluation');
+
+  onProposal({ proposalId: 'p1', sender: 'fraud-agent', payload: {} });
+  onEvaluation({ proposalId: 'p1', sender: 'fraud-agent', payload: { recommendation: 'BLOCK', confidence: 1 } }, ctx);
+  onEvaluation(
+    { proposalId: 'p1', sender: 'compliance-agent', payload: { recommendation: 'BLOCK', confidence: 1 } },
+    ctx
+  );
+
+  await jest.advanceTimersByTimeAsync(50);
+  return { commit: ctx.actions.commit, vote: ctx.actions.vote };
+}
+
 // ── tests ───────────────────────────────────────────────────────────
 describe('risk-decider.worker (SDK Participant)', () => {
   beforeEach(() => {
@@ -175,11 +201,17 @@ describe('risk-decider.worker (SDK Participant)', () => {
     process.exitCode = originalExitCode;
   });
 
-  it('cancels the session to a terminal CANCELLED state when the runtime rejects the commit', async () => {
+  it('cancels the session on a genuine denial (runtime rejects the commit with POLICY_DENIED)', async () => {
     mockLoadBootstrap.mockReturnValue(defaultBootstrap());
     await runWorker();
     await jest.advanceTimersByTimeAsync(10);
 
+    // A GENUINE denial — distinct from a reject-majority decline, which now
+    // resolves (see the decline-finalizes test below). The runtime still returns
+    // POLICY_DENIED for e.g. an approve-side commit short of quorum/confidence, a
+    // decline with no explicit reject vote, or a policy whose
+    // objection_handling.critical_objection_action = "hold". driveToCommit sends
+    // APPROVE evaluations, so this exercises that approve-side denial path.
     const { commit } = await driveToCommit(
       jest.fn().mockRejectedValue(new Error('POLICY_DENIED: PolicyDenied'))
     );
@@ -204,6 +236,22 @@ describe('risk-decider.worker (SDK Participant)', () => {
     const { commit } = await driveToCommit(jest.fn().mockResolvedValue(undefined));
 
     expect(commit).toHaveBeenCalled();
+    expect(mockCancelSession).not.toHaveBeenCalled();
+  });
+
+  it('finalizes a reject-majority decline (outcome_positive=false) without cancelling when the runtime accepts it', async () => {
+    mockLoadBootstrap.mockReturnValue(defaultBootstrap());
+    await runWorker();
+    await jest.advanceTimersByTimeAsync(10);
+
+    // Two BLOCK evaluations → policy strategy decides `decline` / vote `reject`.
+    // The outcome-aware runtime (macp-runtime PR #39) accepts a decline backed by
+    // an explicit reject, so the commit RESOLVES and finalizes the session.
+    const { commit } = await driveToDecline(jest.fn().mockResolvedValue(undefined));
+
+    // The negative commitment is emitted with outcome_positive = false...
+    expect(commit).toHaveBeenCalledWith(expect.objectContaining({ action: 'decline', outcomePositive: false }));
+    // ...and because it finalized the session, the cancel fallback does NOT fire.
     expect(mockCancelSession).not.toHaveBeenCalled();
   });
 });
