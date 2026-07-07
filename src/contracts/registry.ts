@@ -99,6 +99,11 @@ export interface ScenarioVersionFile {
         designatedRoles?: string[];
       };
       ttlMs: number;
+      /**
+       * Optional session-bound suspend cap (ms) — proto 0.1.5
+       * `SessionStartPayload.max_suspend_ms`. 0/absent → runtime default (7 days).
+       */
+      maxSuspendMs?: number;
       initiatorParticipantId?: string;
       participants: ParticipantTemplate[];
       commitments?: CommitmentDefinition[];

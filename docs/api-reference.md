@@ -231,7 +231,7 @@ pre-allocated `sessionId` (UUID v4).
   },
   "initiator": {
     "participantId": "risk-agent",
-    "sessionStart": { "intent": "...", "participants": ["fraud-agent","risk-agent"], "ttlMs": 300000, "modeVersion": "1.0.0", "configurationVersion": "config.default", "policyVersion": "policy.default", "context": { "transactionAmount": 3200 } },
+    "sessionStart": { "intent": "...", "participants": ["fraud-agent","risk-agent"], "ttlMs": 300000, "modeVersion": "1.0.0", "configurationVersion": "config.default", "policyVersion": "policy.default" },
     "kickoff": { "messageType": "Proposal", "payload": { "option": "review" } }
   },
   "executionRequest": {

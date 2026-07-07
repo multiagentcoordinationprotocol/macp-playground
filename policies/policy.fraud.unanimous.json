@@ -6,7 +6,7 @@
   "rules": {
     "voting": {
       "algorithm": "unanimous",
-      "quorum": { "type": "percentage", "value": 1.0 }
+      "quorum": { "type": "percentage", "value": 100 }
     },
     "objection_handling": {
       "critical_severity_vetoes": true,

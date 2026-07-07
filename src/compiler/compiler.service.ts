@@ -97,10 +97,10 @@ export class CompilerService {
             intent: String(metadataFromTemplate.intent ?? `${packSlug}/${scenarioSlug}`),
             participants: participantIds,
             ttlMs: launch.ttlMs,
+            maxSuspendMs: launch.maxSuspendMs,
             modeVersion: launch.modeVersion,
             configurationVersion: launch.configurationVersion,
             policyVersion: launch.policyVersion,
-            context,
             contextId: launch.contextId,
             extensions: launch.extensions
           },

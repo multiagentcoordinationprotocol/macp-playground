@@ -42,10 +42,11 @@ export interface BootstrapPayload {
       intent: string;
       participants: string[];
       ttl_ms: number;
+      /** Session-bound suspend cap (ms) — proto 0.1.5 `max_suspend_ms`. Omitted → runtime default. */
+      max_suspend_ms?: number;
       mode_version: string;
       configuration_version: string;
       policy_version?: string;
-      context?: Record<string, unknown>;
       context_id?: string;
       extensions?: Record<string, unknown>;
       roots?: Array<{ uri: string; name?: string }>;

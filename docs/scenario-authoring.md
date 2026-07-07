@@ -64,6 +64,7 @@ spec:
     configurationVersion: config.default
     policyVersion: policy.default          # optional
     ttlMs: 300000
+    maxSuspendMs: 15000                     # optional — session-bound suspend cap (proto 0.1.5)
     initiatorParticipantId: risk-agent     # optional
 
     participants:
@@ -106,6 +107,15 @@ spec:
     expectedDecisionKinds: [approve, step_up, decline]
     expectedSignals: [suspicious_device]
 ```
+
+> **`maxSuspendMs` (optional).** Binds a session-level suspension cap
+> (proto 0.1.5 `SessionStartPayload.max_suspend_ms`) threaded into the
+> initiator's `sessionStart` exactly like `ttlMs`. Omit it (or set `0`) to
+> accept the runtime default (7 days). A small cap is useful for suspend/resume
+> demos: hold a suspended session past the cap and the runtime expires it
+> against the cap. See the `suspend-demo` template under the fraud pack, which
+> pairs `maxSuspendMs: 15000` with the `suspend` customerId sentinel that
+> triggers `risk-decider.worker.ts`'s initiator-driven suspend/resume flow.
 
 ## Template File
 

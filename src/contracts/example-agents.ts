@@ -90,10 +90,10 @@ export interface ExampleAgentRunContext {
       intent: string;
       participants: string[];
       ttlMs: number;
+      maxSuspendMs?: number;
       modeVersion: string;
       configurationVersion: string;
       policyVersion?: string;
-      context?: Record<string, unknown>;
       contextId?: string;
       extensions?: Record<string, unknown>;
       roots?: Array<{ uri: string; name?: string }>;
