@@ -198,10 +198,10 @@ export class ProcessExampleAgentHostProvider implements ExampleAgentHostProvider
                 intent: initiatorData.sessionStart.intent,
                 participants: initiatorData.sessionStart.participants,
                 ttl_ms: initiatorData.sessionStart.ttlMs,
+                max_suspend_ms: initiatorData.sessionStart.maxSuspendMs,
                 mode_version: initiatorData.sessionStart.modeVersion,
                 configuration_version: initiatorData.sessionStart.configurationVersion,
                 policy_version: initiatorData.sessionStart.policyVersion,
-                context: initiatorData.sessionStart.context,
                 context_id: initiatorData.sessionStart.contextId,
                 extensions: initiatorData.sessionStart.extensions,
                 roots: initiatorData.sessionStart.roots

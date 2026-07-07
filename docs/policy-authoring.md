@@ -113,7 +113,17 @@ Flow (`src/policy/policy-registrar.service.ts`):
 4. Errors whose message contains `"already"` are treated as idempotent
    success (the runtime signals a duplicate).
 5. On completion, logs
-   `policy_registration_complete registered=<n> already=<n> failed=<n> total=<n>`.
+   `policy_registration_complete registered=<n> already=<n> managed_by_runtime=<n> missing=<n> failed=<n> read_only=<bool> total=<n>`.
+
+**Read-only registry (v0.5.0).** A runtime started with `MACP_POLICIES_DIR`
+owns its registry from disk and rejects `RegisterPolicy` with
+`FAILED_PRECONDITION`. The registrar detects this on the first rejection,
+**stops mutating**, and switches to **verification**: it calls `getPolicy` for
+each required policy, counts `managed_by_runtime` vs `missing`, and logs any
+missing policy at ERROR with the `<policy_id>.json` file to mount into the
+runtime's policies dir. For this deployment shape, mount `./policies` into the
+runtime and set `REGISTER_POLICIES_ON_LAUNCH=false` to skip the probe entirely
+(see [`deployment.md`](deployment.md) § Read-only registry).
 
 Registration is skipped (with a warning, not an error) when:
 
@@ -142,13 +152,19 @@ A rejected commit produces no terminal commitment, so the session would
 otherwise linger until TTL expiry. To keep the demo deterministic, the
 `risk-decider` coordinator catches `POLICY_DENIED` and drives the session to a
 terminal **`CANCELLED`** state via `participant.client.cancelSession()`
-(proto 0.1.3 / `macp-sdk-typescript` 0.4.0). The control-plane observer maps the
-resulting `CANCELLED` lifecycle event to a `cancelled` run status — distinct
-from a TTL `EXPIRED` run.
+(macp-runtime v0.5.0 / `macp-sdk-typescript` 0.5.0). The control-plane observer
+maps the resulting `CANCELLED` lifecycle event to a `cancelled` run status —
+distinct from a TTL `EXPIRED` run.
+
+> **Empty `policy_version` on commits (v0.5.0).** The runtime now matches an
+> **empty** commitment `policy_version` to whatever policy the session is bound
+> to, so clients need not echo `policy.default` for the default-governance case.
+> The SDK still echoes `policy.default` for us; both continue to match — the new
+> rule only widens acceptance.
 
 ### Outcome-aware commits: a decline can *resolve* instead of being denied
 
-As of `macp-runtime` PR #39 the Decision commitment evaluator is **outcome-aware**,
+As of `macp-runtime` v0.5.0 the Decision commitment evaluator is **outcome-aware**,
 so `POLICY_DENIED` → `CANCELLED` is **not** the universal result:
 
 - A **negative (decline) commitment** (`outcome_positive = false`) backed by **at
@@ -199,6 +215,13 @@ fields (`objection_handling.critical_objection_action`,
 
 Refer to [`macp-runtime/docs/policy.md`](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md)
 for the legal values of each rule field.
+
+> **Quorum scale (v0.5.0).** A `percentage`-type quorum value is on a **0–100
+> scale** — the runtime evaluator divides the observed voter ratio by 100 before
+> comparing. Write `"value": 100` for "all participants must vote", not `1.0`
+> (which means **1%** and is satisfied by a single voter). A `count`-type quorum
+> value is an absolute voter count. This matches v0.5.0's clarified quorum-mode
+> semantics; `policy.fraud.unanimous` was corrected accordingly.
 
 2. **Reference it in a scenario template:**
 

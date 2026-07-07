@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { PolicyRegistrarService } from './policy-registrar.service';
 import { PolicyLoaderService } from './policy-loader.service';
 import { AuthTokenMinterService } from '../auth/auth-token-minter.service';
@@ -5,6 +6,7 @@ import { AppConfigService } from '../config/app-config.service';
 import type { PolicyDefinition } from '../contracts/policy';
 
 const registerPolicyMock = jest.fn();
+const getPolicyMock = jest.fn();
 const macpClientCtor = jest.fn();
 
 jest.mock('macp-sdk-typescript', () => ({
@@ -16,7 +18,7 @@ jest.mock('macp-sdk-typescript', () => ({
   },
   MacpClient: jest.fn().mockImplementation((opts: unknown) => {
     macpClientCtor(opts);
-    return { registerPolicy: registerPolicyMock };
+    return { registerPolicy: registerPolicyMock, getPolicy: getPolicyMock };
   })
 }));
 
@@ -74,6 +76,7 @@ function buildService(overrides: {
 describe('PolicyRegistrarService', () => {
   beforeEach(() => {
     registerPolicyMock.mockReset();
+    getPolicyMock.mockReset();
     macpClientCtor.mockReset();
   });
 
@@ -165,5 +168,51 @@ describe('PolicyRegistrarService', () => {
       .mockResolvedValueOnce({ ok: true });
     await service.onApplicationBootstrap();
     expect(registerPolicyMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('switches to verification when the registry is read-only (result error) and all policies are present', async () => {
+    const { service } = buildService({ policies: [claimsPolicy, fraudPolicy] });
+    registerPolicyMock.mockResolvedValueOnce({
+      ok: false,
+      error: 'FAILED_PRECONDITION: policy registry is read-only (MACP_POLICIES_DIR)'
+    });
+    getPolicyMock.mockImplementation((policyId: string) => Promise.resolve({ policyId }));
+
+    await service.onApplicationBootstrap();
+
+    // Only the first policy hits registerPolicy; after the read-only signal we
+    // never attempt another mutation.
+    expect(registerPolicyMock).toHaveBeenCalledTimes(1);
+    // Both policies are verified via getPolicy (the trigger one + the remainder).
+    expect(getPolicyMock).toHaveBeenCalledTimes(2);
+    expect(getPolicyMock).toHaveBeenCalledWith('policy.claims.majority');
+    expect(getPolicyMock).toHaveBeenCalledWith('policy.fraud.unanimous');
+  });
+
+  it('switches to verification when registerPolicy throws FAILED_PRECONDITION', async () => {
+    const { service } = buildService({ policies: [claimsPolicy, fraudPolicy] });
+    registerPolicyMock.mockRejectedValueOnce(new Error('13 FAILED_PRECONDITION: registry is file-managed'));
+    getPolicyMock.mockImplementation((policyId: string) => Promise.resolve({ policyId }));
+
+    await service.onApplicationBootstrap();
+
+    expect(registerPolicyMock).toHaveBeenCalledTimes(1);
+    expect(getPolicyMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('logs missing policies (ERROR) when read-only and getPolicy rejects NOT_FOUND', async () => {
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { service } = buildService({ policies: [claimsPolicy, fraudPolicy] });
+    registerPolicyMock.mockResolvedValueOnce({ ok: false, error: 'FAILED_PRECONDITION: read-only registry' });
+    getPolicyMock
+      .mockResolvedValueOnce({ policyId: 'policy.claims.majority' }) // present
+      .mockRejectedValueOnce(new Error('NOT_FOUND: no such policy')); // missing
+
+    await service.onApplicationBootstrap();
+
+    expect(getPolicyMock).toHaveBeenCalledTimes(2);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy.mock.calls[0][0]).toContain('policy.fraud.unanimous.json');
+    errorSpy.mockRestore();
   });
 });

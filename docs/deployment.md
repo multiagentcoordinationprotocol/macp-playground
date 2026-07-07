@@ -20,6 +20,20 @@ full JWT-mode setup (supported algorithms, `macp_scopes` claim shape,
 JWKS caching) see
 [`macp-runtime/docs/getting-started.md` § JWT mode](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/getting-started.md#jwt-mode).
 
+> **v0.5.0 runtime changes.**
+> - A **local, no-auth** runtime now **refuses to start** unless `MACP_ALLOW_INSECURE=1`
+>   is set — the published image no longer bakes it in. The fullstack compose sets
+>   it explicitly (also required for plaintext gRPC regardless of auth mode).
+> - The default JWT algorithm allowlist is **RS256/ES256** (HS256 was removed).
+>   This stack uses RS256 throughout, so no action is needed; opting into HS256
+>   would require `MACP_AUTH_JWT_ALGS=HS256` on the runtime — don't.
+> - The runtime exposes a **Prometheus text endpoint** via `MACP_METRICS_ADDR`
+>   (e.g. `0.0.0.0:9464`) — the fullstack compose maps it out at `:9464` as an
+>   observability demo surface.
+> - Runtime images are published to
+>   `ghcr.io/multiagentcoordinationprotocol/macp-runtime:{0.5.0,latest}`, so no
+>   local Rust build is required.
+
 ### Startup order
 
 ```
@@ -157,6 +171,18 @@ The table below mirrors `AppConfigService` (`src/config/app-config.service.ts`) 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `REGISTER_POLICIES_ON_LAUNCH` | No | `true` | When true, `PolicyRegistrarService` registers every non-default policy with the runtime at bootstrap. Set to `false` only in tests or when policies are pre-registered out-of-band. |
+
+**Read-only registry (v0.5.0, prod-style alternative).** A runtime started with
+`MACP_POLICIES_DIR` owns its policy registry from disk and rejects `RegisterPolicy`
+RPCs with `FAILED_PRECONDITION`. Mount this repo's `./policies` into that directory
+and set `REGISTER_POLICIES_ON_LAUNCH=false` to skip the mutation probe entirely.
+If you leave `REGISTER_POLICIES_ON_LAUNCH=true`, `PolicyRegistrarService` detects
+the read-only registry, stops mutating, and switches to **verification** — calling
+`getPolicy` for each required policy and logging a
+`registered/already/managed_by_runtime/missing/failed` summary. Any policy the
+runtime is missing is logged at ERROR with the `<policy_id>.json` file to mount
+(launches referencing it would otherwise fail `UNKNOWN_POLICY_VERSION`). The
+fullstack compose ships a commented-out variant of this setup.
 
 ### Agent workers
 

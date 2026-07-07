@@ -110,6 +110,11 @@ Every agent spawn mints a short-lived RS256 JWT against the standalone
 service requires `MACP_AUTH_SERVICE_URL` to be set at boot and throws
 `INVALID_CONFIG` otherwise (see `AppConfigService.validateAuthConfig()`).
 
+> **Algorithm (v0.5.0).** The runtime's default JWT allowlist is **RS256/ES256** —
+> HS256 was removed. This stack is RS256 end-to-end, so no action is required; do
+> not introduce HS256 tokens (they would need an explicit `MACP_AUTH_JWT_ALGS=HS256`
+> opt-in on the runtime).
+
 ### What the minter sends
 
 ```http

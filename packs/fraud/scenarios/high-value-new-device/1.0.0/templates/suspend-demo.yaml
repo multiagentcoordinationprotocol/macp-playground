@@ -1,0 +1,32 @@
+apiVersion: scenarios.macp.dev/v1
+kind: ScenarioTemplate
+metadata:
+  scenarioVersion: fraud/high-value-new-device@1.0.0
+  slug: suspend-demo
+  name: Suspend/Resume with Bound Cap
+spec:
+  # The `suspend` sentinel in customerId triggers the initiator-driven
+  # suspend/resume demo in risk-decider.worker.ts. `maxSuspendMs` binds a
+  # session-level suspension cap (proto 0.1.5 max_suspend_ms): hold the session
+  # past the cap and the runtime expires it against the cap instead of the
+  # 7-day default. Keep RISK_DECIDER_SUSPEND_HOLD_MS below maxSuspendMs to
+  # observe a clean resume; raise it above to demonstrate cap-driven expiry.
+  defaults:
+    customerId: CUST-SUSPEND-2001
+    transactionAmount: 2400
+    deviceTrustScore: 0.18
+    accountAgeDays: 14
+    isVipCustomer: true
+    priorChargebacks: 1
+  overrides:
+    launch:
+      maxSuspendMs: 15000
+      policyVersion: policy.fraud.majority-veto
+      policyHints:
+        type: majority
+        description: Simple majority vote with blocking-objection veto and 2-voter quorum
+        threshold: 0.5
+        vetoEnabled: true
+        vetoThreshold: 1
+        minimumConfidence: 0.0
+        designatedRoles: []

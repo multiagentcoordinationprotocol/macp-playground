@@ -59,10 +59,11 @@ export interface InitiatorPayload {
     intent: string;
     participants: string[];
     ttlMs: number;
+    /** Session-bound suspend cap (ms) — proto 0.1.5 `max_suspend_ms`. */
+    maxSuspendMs?: number;
     modeVersion: string;
     configurationVersion: string;
     policyVersion?: string;
-    context?: Record<string, unknown>;
     contextId?: string;
     extensions?: Record<string, unknown>;
     roots?: Array<{ uri: string; name?: string }>;

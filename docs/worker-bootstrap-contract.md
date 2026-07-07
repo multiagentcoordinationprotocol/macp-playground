@@ -129,6 +129,13 @@ For the runtime-side `Signal` semantics (no session binding, not
 persisted, delivered via `WatchSignals`), see
 [`macp-runtime/docs/API.md` § WatchSignals](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#watchsignals).
 
+> **v0.5.0 watch-side note.** `WatchSignals` now **requires authentication**, and
+> watch streams that fall behind are terminated with `RESOURCE_EXHAUSTED` (the
+> consumer must reconnect). This affects the **consumer** side only — the
+> macp-playground merely *emits* Signals over an authenticated `Send`, so nothing
+> here changes. Anyone pointing an observer (e.g. the control-plane) at the
+> runtime must authenticate the watch and handle `RESOURCE_EXHAUSTED` reconnects.
+
 ## SDK usage patterns
 
 Minimal handler wiring in each SDK — full API is in the SDK docs:

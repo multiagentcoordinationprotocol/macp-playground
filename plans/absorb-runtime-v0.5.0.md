@@ -321,6 +321,33 @@ declares v0.5.0 support.
 
 ## Revision log
 
+- **Implementation (2026-07-06):** Slices A **and** B implemented — both SDKs shipped 0.5.0
+  (macp-sdk-typescript 0.5.0 → transitive `@multiagentcoordinationprotocol/proto` 0.1.8;
+  macp-sdk-python >=0.5.0,<0.6 → `macp-proto` >=0.1.6). All eight tasks landed:
+  - **T7** — bumped `package.json`/lockfile + `agents/requirements.txt`; verified TS SDK 0.5.0
+    `session.start()` accepts `maxSuspendMs` and `fromBootstrap` reads `max_suspend_ms` /
+    `context_id` / `extensions` (no `context`), confirming T4/T8.
+  - **T3** — `policy.fraud.unanimous` quorum `1.0` → `100`; 0–100 scale documented.
+  - **T4** — deleted dead `sessionStart.context` from 4 TS types + 2 construction sites +
+    `api-reference.md`; consumed `session_context` path untouched.
+  - **T2** — `PolicyRegistrarService` detects read-only registry (FAILED_PRECONDITION), stops
+    mutating, verifies via `getPolicy`, logs `registered/already/managed_by_runtime/missing/
+    failed/read_only` summary + ERROR naming missing `<policy_id>.json`; 3 new unit specs.
+  - **T8** — optional `maxSuspendMs` threaded launch → `sessionStart` → `session_start.
+    max_suspend_ms`; new `suspend-demo` fraud template (`maxSuspendMs: 15000` + suspend
+    sentinel); scenario-authoring doc.
+  - **T1** — fullstack compose runtime → `ghcr.io/.../macp-runtime:0.5.0`, other images →
+    `:0.5.0`, `MACP_METRICS_ADDR`/`:9464`, commented policies-dir variant, rewritten header;
+    CLAUDE.md + deployment.md updated.
+  - **T5** — deployment/policy-authoring/direct-agent-auth/worker-bootstrap/CLAUDE docs
+    refreshed (no-auth startup, RS256/ES256 default, empty policy_version match, read-only
+    registry, WatchSignals auth, version citations → v0.5.0).
+  - **T6** — offline gate green: build + lint clean, 328 unit / 31 e2e / 73 integration(mock)
+    tests pass, `scenario:lint` clean, `suspend-demo` dry-run emits `maxSuspendMs`. The live
+    docker acceptance matrix (items 1–7: real-LLM fraud run, decline-resolves, suspend/resume,
+    unanimous POLICY_DENIED, `/metrics`, policies-dir boot) still requires a full stack +
+    `OPENAI_API_KEY` and was **not** run in this environment — run it before tagging the image.
+  T9 backlog remains out of scope.
 - **Draft (2026-07-05):** initial plan from full repo walk: CLAUDE.md, README, package.json +
   lockfile, all three compose files, Dockerfile, `agents/`, `packs/`, `policies/`, `src/policy`,
   `src/compiler`, `src/hosting`, `src/example-agents/runtime`, `test/`, CI workflows, SDK dist
