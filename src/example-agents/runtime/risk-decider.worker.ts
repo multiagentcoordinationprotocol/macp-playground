@@ -23,7 +23,10 @@ function inferOutcomePositive(action: string): boolean {
   return action !== 'decline';
 }
 
-async function emitSessionContext(participant: ReturnType<typeof fromBootstrap>, bootstrap: ReturnType<typeof loadBootstrapPayload>): Promise<void> {
+async function emitSessionContext(
+  participant: ReturnType<typeof fromBootstrap>,
+  bootstrap: ReturnType<typeof loadBootstrapPayload>
+): Promise<void> {
   const sessionContext = (bootstrap.metadata?.session_context ?? {}) as Record<string, unknown>;
   if (Object.keys(sessionContext).length === 0) return;
 
@@ -41,7 +44,11 @@ async function emitSessionContext(participant: ReturnType<typeof fromBootstrap>,
     messageType: 'Signal',
     sessionId: '',
     sender: bootstrap.participant_id,
-    payload: participant.client.protoRegistry.encodeKnownPayload('', 'Signal', payload as unknown as Record<string, unknown>)
+    payload: participant.client.protoRegistry.encodeKnownPayload(
+      '',
+      'Signal',
+      payload as unknown as Record<string, unknown>
+    )
   });
   try {
     await participant.client.send(envelope, { auth: participant.auth });

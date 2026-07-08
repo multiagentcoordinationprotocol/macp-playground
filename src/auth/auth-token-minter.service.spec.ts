@@ -286,10 +286,7 @@ describe('AuthTokenMinterService', () => {
     it('override replaces base values', () => {
       const minter = new AuthTokenMinterService(stubConfig());
       expect(
-        minter.mergeScopes(
-          { can_start_sessions: false, allowed_modes: ['a'] },
-          { can_start_sessions: true }
-        )
+        minter.mergeScopes({ can_start_sessions: false, allowed_modes: ['a'] }, { can_start_sessions: true })
       ).toEqual({ can_start_sessions: true, allowed_modes: ['a'] });
     });
 

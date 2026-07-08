@@ -86,7 +86,9 @@ describe('ExampleRunService', () => {
   beforeEach(() => {
     // Each test gets a fresh clone so applyRequestOverrides mutations don't
     // bleed across cases.
-    compiler = { compile: jest.fn().mockImplementation(async () => buildCompiled()) } as unknown as jest.Mocked<CompilerService>;
+    compiler = {
+      compile: jest.fn().mockImplementation(async () => buildCompiled())
+    } as unknown as jest.Mocked<CompilerService>;
     hosting = {
       resolve: jest.fn().mockResolvedValue(resolvedAgents),
       attach: jest.fn().mockResolvedValue(attachedAgents)

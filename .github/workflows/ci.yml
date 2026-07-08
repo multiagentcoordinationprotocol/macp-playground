@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint:
@@ -24,6 +29,10 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: npm run lint
+      - run: npm run format:check
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+        continue-on-error: true
 
   build:
     runs-on: ubuntu-latest
@@ -57,35 +66,45 @@ jobs:
           registry-url: 'https://npm.pkg.github.com'
           scope: '@multiagentcoordinationprotocol'
           cache: npm
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
       - run: npm ci
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: npm run build
       - run: npm test -- --coverage --forceExit
+      - name: Upload unit coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
       - run: npm run test:e2e -- --forceExit
       - name: Integration tests (mock control plane)
         run: npm run test:integration -- --forceExit
         env:
           INTEGRATION_CONTROL_PLANE: mock
 
-      - name: Validate Python workers
-        run: |
-          python3 -m py_compile agents/langgraph_worker/main.py
-          python3 -m py_compile agents/langgraph_worker/graph.py
-          python3 -m py_compile agents/langgraph_worker/mappers.py
-          python3 -m py_compile agents/langchain_worker/main.py
-          python3 -m py_compile agents/langchain_worker/chain.py
-          python3 -m py_compile agents/langchain_worker/mappers.py
-          python3 -m py_compile agents/crewai_worker/main.py
-          python3 -m py_compile agents/crewai_worker/crew.py
-          python3 -m py_compile agents/crewai_worker/mappers.py
+  python:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: agents/requirements-dev.txt
+      - run: pip install -r agents/requirements-dev.txt
+      - name: Lint Python workers
+        run: ruff check agents/
+      - name: Test Python workers
+        run: pytest agents/tests
+      - name: Compile-check worker entrypoints
+        run: python3 -m compileall -q agents/langgraph_worker agents/langchain_worker agents/crewai_worker
 
   docker:
     runs-on: ubuntu-latest
-    needs: [lint, build, test]
+    needs: [lint, build, test, python]
     permissions:
       contents: read
       packages: write
@@ -96,6 +115,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -110,16 +130,25 @@ jobs:
           tags: |
             type=sha
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=ref,event=pr
 
-      - name: Build and push
+      - name: Build (and push on non-PR events)
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        continue-on-error: true
+        with:
+          image-ref: ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.version }}
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '1'

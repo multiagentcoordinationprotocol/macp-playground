@@ -307,5 +307,4 @@ export class ProcessExampleAgentHostProvider implements ExampleAgentHostProvider
     }
     return definition.bootstrap.entrypoint.endsWith('.py') ? 'python' : 'node';
   }
-
 }
