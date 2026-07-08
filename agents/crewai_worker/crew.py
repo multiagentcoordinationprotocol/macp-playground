@@ -46,9 +46,12 @@ try:
                 f"- Transaction amount: {inputs.get('transaction_amount', 'unknown')}\n"
                 f"- Account age (days): {inputs.get('account_age_days', 'unknown')}\n"
                 f"- Prior chargebacks: {inputs.get('prior_chargebacks', 'unknown')}\n"
-                f"Provide a compliance assessment as JSON with: message_type, recommendation, confidence, reason, severity."
+                "Provide a compliance assessment as JSON with: "
+                "message_type, recommendation, confidence, reason, severity."
             ),
-            expected_output='JSON with message_type (Evaluation or Objection), severity, reason, recommendation, and confidence',
+            expected_output=(
+                'JSON with message_type (Evaluation or Objection), severity, reason, recommendation, and confidence'
+            ),
             agent=compliance_analyst,
         )
 

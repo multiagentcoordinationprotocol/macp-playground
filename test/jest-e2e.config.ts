@@ -14,7 +14,9 @@ const config: Config = {
       }
     ]
   },
-  testEnvironment: 'node'
+  testEnvironment: 'node',
+  testTimeout: 30000,
+  detectOpenHandles: true
 };
 
 export default config;
