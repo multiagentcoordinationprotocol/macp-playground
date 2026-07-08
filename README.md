@@ -93,7 +93,7 @@ Four demo agents are included:
 | Compliance Agent | CrewAI | Applies KYC/AML policy checks |
 | Risk Agent | Custom | Coordinates the final recommendation |
 
-All agents use an **active process-backed** hosting strategy. Python and Node.js worker processes are spawned after the control plane creates a run, poll for events, and send MACP messages back through the control plane. Transport identities and entrypoints are resolved and injected into the ExecutionRequest before submission.
+All agents use an **active process-backed** hosting strategy. Python and Node.js worker processes are spawned per run and authenticate directly to the MACP runtime over gRPC with their own bearer tokens (direct-agent-auth, RFC-MACP-0004 §4) — the control plane keeps observer-only responsibilities. Transport identities and entrypoints are resolved and injected into the ExecutionRequest before submission.
 
 ## Authoring a scenario
 
@@ -206,9 +206,15 @@ npm run start:dev          # Dev mode with auto-reload
 npm test                   # Unit tests
 npm run test:e2e           # E2E tests
 npm run test:integration   # Integration tests (mock control plane)
-npm run test:cov           # Coverage report
+npm run test:cov           # Coverage report (global thresholds enforced)
 npm run lint               # ESLint
-npm run format             # Prettier
+npm run format             # Prettier (write)
+npm run format:check       # Prettier check only (CI gate)
+
+# Python workers
+pip install -r agents/requirements-dev.txt
+ruff check agents/         # Lint the framework workers
+pytest agents/tests        # Worker mapper unit tests
 
 # Scenario authoring
 npm run scenario:new       # Scaffold a new scenario directory tree
