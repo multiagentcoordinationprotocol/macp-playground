@@ -34,7 +34,8 @@ const FORBIDDEN_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   },
   {
     pattern: /from\s+['"][^'"]*\/control-plane\/[^'"]*['"]/,
-    reason: 'The local control-plane HTTP client was removed with direct-agent-auth; agents talk to the runtime over gRPC.'
+    reason:
+      'The local control-plane HTTP client was removed with direct-agent-auth; agents talk to the runtime over gRPC.'
   },
   {
     pattern: /['"]\/runtime\/policies(?:\/|['"])/,

@@ -153,11 +153,7 @@ export class AuthTokenMinterService {
     }
 
     if (!parsed || typeof parsed.token !== 'string' || !parsed.token) {
-      throw new AppException(
-        ErrorCode.AUTH_MINT_FAILED,
-        'auth-service response missing token',
-        HttpStatus.BAD_GATEWAY
-      );
+      throw new AppException(ErrorCode.AUTH_MINT_FAILED, 'auth-service response missing token', HttpStatus.BAD_GATEWAY);
     }
 
     const ttlSeconds = Number.isFinite(parsed.expires_in_seconds)

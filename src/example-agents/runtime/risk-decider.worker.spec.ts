@@ -212,9 +212,7 @@ describe('risk-decider.worker (SDK Participant)', () => {
     // decline with no explicit reject vote, or a policy whose
     // objection_handling.critical_objection_action = "hold". driveToCommit sends
     // APPROVE evaluations, so this exercises that approve-side denial path.
-    const { commit } = await driveToCommit(
-      jest.fn().mockRejectedValue(new Error('POLICY_DENIED: PolicyDenied'))
-    );
+    const { commit } = await driveToCommit(jest.fn().mockRejectedValue(new Error('POLICY_DENIED: PolicyDenied')));
 
     // The commit was attempted and rejected by the runtime policy engine...
     expect(commit).toHaveBeenCalled();

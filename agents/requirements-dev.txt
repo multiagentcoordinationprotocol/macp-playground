@@ -1,0 +1,5 @@
+# Dev/CI tooling for the Python framework workers. Deliberately excludes the
+# framework dependencies in requirements.txt: the tests target the pure
+# mapper modules so CI stays fast and dependency-light.
+pytest>=8.0,<9
+ruff>=0.8,<1

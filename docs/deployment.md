@@ -56,16 +56,19 @@ If any of these fail, `/examples/run` will surface `AUTH_MINT_FAILED` (502) at r
 ## Pipeline
 
 ```
-push to main / PR
+push to main / PR (superseded runs on the same ref are cancelled)
   │
-  ├─ lint          ESLint
+  ├─ lint          ESLint + Prettier check + npm audit (non-blocking)
   ├─ build         TypeScript compile
-  ├─ test          unit tests + e2e tests + Python validation
+  ├─ test          unit (coverage thresholds, report artifact) + e2e + integration (mock)
+  ├─ python        ruff + pytest over agents/ workers
   │
-  └─ docker        Build image → push to GHCR
-                     main  → :latest + :sha-<commit>
-                     PR    → :pr-<number>
+  └─ docker        PR   → build image only (no registry push)
+                   main → build + push to GHCR (:latest + :sha-<commit>)
+                          + Trivy vulnerability scan (non-blocking)
 ```
+
+Dependency updates are automated by Dependabot (`.github/dependabot.yml`): weekly PRs for npm (root), pip (`agents/`), and GitHub Actions versions.
 
 ## Image Tags
 
@@ -73,7 +76,8 @@ push to main / PR
 |---------|-----|---------|
 | Push to `main` | `:latest` | Rolling production tag |
 | Push to `main` | `:sha-<commit>` | Immutable, for rollback |
-| Pull request | `:pr-<number>` | Preview / validation |
+
+Pull requests build the image for validation but do not push it, so the registry only carries images built from `main`.
 
 Images live at:
 ```
@@ -117,14 +121,6 @@ flyctl secrets set \
 Any platform that can run a Docker image works. Point it at:
 ```
 ghcr.io/multiagentcoordinationprotocol/macp-playground:latest
-```
-
-## PR Preview Environments
-
-PR builds produce images tagged `:pr-<number>`. Platforms that support preview environments can pull these for ephemeral deployments:
-
-```
-ghcr.io/multiagentcoordinationprotocol/macp-playground:pr-42
 ```
 
 ## Environment Variables

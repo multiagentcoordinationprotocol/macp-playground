@@ -148,10 +148,16 @@ def main() -> int:
         emit_progress(ctx.actions, 0.75, f"voting {vote}")
         try:
             ctx.actions.vote(pending["proposal_id"], vote, reason=pending["reason"])
-            logger.info("vote sent proposalId=%s vote=%s recommendation=%s", pending["proposal_id"], vote, pending["recommendation"])
+            logger.info(
+                "vote sent proposalId=%s vote=%s recommendation=%s",
+                pending["proposal_id"], vote, pending["recommendation"],
+            )
         except MacpAckError as err:
             if _is_session_closed(err):
-                logger.info("fraud vote skipped — session already closed proposalId=%s err=%s", pending["proposal_id"], err)
+                logger.info(
+                    "fraud vote skipped — session already closed proposalId=%s err=%s",
+                    pending["proposal_id"], err,
+                )
             else:
                 raise
         emit_progress(ctx.actions, 1.0, "complete")
@@ -230,7 +236,10 @@ def main() -> int:
         eval_confidence = max(0.0, min(1.0, confidence))
         try:
             ctx.actions.evaluate(proposal_id, eval_recommendation, confidence=eval_confidence, reason=reason)
-            logger.info("evaluation sent proposalId=%s recommendation=%s confidence=%.2f", proposal_id, eval_recommendation, eval_confidence)
+            logger.info(
+                "evaluation sent proposalId=%s recommendation=%s confidence=%.2f",
+                proposal_id, eval_recommendation, eval_confidence,
+            )
         except MacpAckError as err:
             logger.info("fraud evaluation skipped proposalId=%s err=%s", proposal_id, err)
 

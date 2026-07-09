@@ -99,13 +99,7 @@ describe('ProcessExampleAgentHostProvider', () => {
     manifestValidator = new ManifestValidator(adapterRegistry);
     authMinter = new AuthTokenMinterService(config);
 
-    provider = new ProcessExampleAgentHostProvider(
-      config,
-      adapterRegistry,
-      supervisor,
-      manifestValidator,
-      authMinter
-    );
+    provider = new ProcessExampleAgentHostProvider(config, adapterRegistry, supervisor, manifestValidator, authMinter);
 
     jest.clearAllMocks();
 
@@ -461,11 +455,7 @@ describe('ProcessExampleAgentHostProvider', () => {
         healthStatus: 'starting'
       });
 
-      await provider.attach(
-        buildDefinition(),
-        buildBinding(),
-        buildContext({ sessionId: 'sess-1' })
-      );
+      await provider.attach(buildDefinition(), buildBinding(), buildContext({ sessionId: 'sess-1' }));
 
       expect(mintSpy).toHaveBeenCalledWith('fraud-agent', {
         can_start_sessions: false,

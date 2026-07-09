@@ -41,12 +41,20 @@ const fraudPolicy: PolicyDefinition = {
   description: 'Fraud unanimous'
 };
 
-function buildService(overrides: {
-  registerPoliciesOnLaunch?: boolean;
-  runtimeAddress?: string;
-  policies?: PolicyDefinition[];
-  mint?: () => Promise<{ token: string; sender: string; expiresAt: number; expiresInSeconds: number; cacheOutcome: 'hit' | 'miss' }>;
-} = {}) {
+function buildService(
+  overrides: {
+    registerPoliciesOnLaunch?: boolean;
+    runtimeAddress?: string;
+    policies?: PolicyDefinition[];
+    mint?: () => Promise<{
+      token: string;
+      sender: string;
+      expiresAt: number;
+      expiresInSeconds: number;
+      cacheOutcome: 'hit' | 'miss';
+    }>;
+  } = {}
+) {
   const config = {
     registerPoliciesOnLaunch: overrides.registerPoliciesOnLaunch ?? true,
     runtimeAddress: overrides.runtimeAddress ?? 'runtime:50051',
@@ -163,9 +171,7 @@ describe('PolicyRegistrarService', () => {
 
   it('continues registering remaining policies when one throws', async () => {
     const { service } = buildService({ policies: [claimsPolicy, fraudPolicy] });
-    registerPolicyMock
-      .mockRejectedValueOnce(new Error('grpc UNAVAILABLE'))
-      .mockResolvedValueOnce({ ok: true });
+    registerPolicyMock.mockRejectedValueOnce(new Error('grpc UNAVAILABLE')).mockResolvedValueOnce({ ok: true });
     await service.onApplicationBootstrap();
     expect(registerPolicyMock).toHaveBeenCalledTimes(2);
   });

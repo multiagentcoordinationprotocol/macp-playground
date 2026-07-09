@@ -16,6 +16,16 @@ const config: Config = {
   },
   collectCoverageFrom: ['**/*.ts', '!**/index.ts', '!main.ts'],
   coverageDirectory: '../coverage',
+  // Floor a few points below measured coverage (2026-07: 85.9/69.7/88.1/86.9)
+  // so regressions fail CI without blocking unrelated changes.
+  coverageThreshold: {
+    global: {
+      statements: 83,
+      branches: 67,
+      functions: 85,
+      lines: 84
+    }
+  },
   testEnvironment: 'node',
   detectOpenHandles: true
 };
