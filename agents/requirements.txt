@@ -1,7 +1,7 @@
 langgraph==0.3.34
 langchain==0.3.28
 langchain-openai==0.3.35
-langchain-core==0.3.84
+langchain-core==1.4.9
 crewai==0.203.2
 openai==1.109.1
 # Direct-agent-auth: agents open their own gRPC channel to the MACP runtime
