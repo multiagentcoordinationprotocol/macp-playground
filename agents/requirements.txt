@@ -1,6 +1,6 @@
 langgraph==0.3.34
 langchain==0.3.28
-langchain-openai==0.3.35
+langchain-openai==1.3.4
 langchain-core==0.3.84
 crewai==0.203.2
 openai==1.109.1
