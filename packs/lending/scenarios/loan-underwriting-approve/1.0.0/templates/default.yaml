@@ -1,0 +1,16 @@
+apiVersion: scenarios.macp.dev/v1
+kind: ScenarioTemplate
+metadata:
+  scenarioVersion: lending/loan-underwriting-approve@1.0.0
+  slug: default
+  name: Default (strong applicant)
+spec:
+  defaults:
+    applicantId: APP-2100
+    loanAmount: 25000
+    creditScore: 780
+    debtToIncomeRatio: 0.22
+    employmentYears: 8
+    isExistingCustomer: true
+    priorDefaults: 0
+    deviceTrustScore: 0.9

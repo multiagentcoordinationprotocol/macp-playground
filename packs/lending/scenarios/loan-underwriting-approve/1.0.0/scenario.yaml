@@ -1,0 +1,134 @@
+apiVersion: scenarios.macp.dev/v1
+kind: ScenarioVersion
+metadata:
+  pack: lending
+  scenario: loan-underwriting-approve
+  version: 1.0.0
+  name: Loan Underwriting Review — Approval Path
+  summary: >-
+    A pre-screened, low-risk applicant that clears the conservative supermajority
+    policy. Fraud, credit, compliance, and risk agents all approve, producing a
+    committed underwriting decision (the happy path counterpart to
+    loan-underwriting, which steps up and cancels).
+  tags: [lending, credit, fraud, compliance, risk, demo, mixed-framework, approval-path]
+spec:
+  runtime:
+    kind: rust
+    version: v1
+
+  inputs:
+    schema:
+      type: object
+      properties:
+        applicantId:
+          type: string
+          default: APP-2100
+        loanAmount:
+          type: number
+          default: 25000
+          minimum: 1000
+        creditScore:
+          type: integer
+          default: 780
+          minimum: 300
+          maximum: 850
+        debtToIncomeRatio:
+          type: number
+          default: 0.22
+          minimum: 0
+          maximum: 1
+        employmentYears:
+          type: integer
+          default: 8
+          minimum: 0
+        isExistingCustomer:
+          type: boolean
+          default: true
+        priorDefaults:
+          type: integer
+          default: 0
+          minimum: 0
+        # Exposed as a first-class input (unlike loan-underwriting, which pins it
+        # to 0.5). The reused fraud/credit/compliance specialists key their
+        # recommendation on device trust; a pre-screened applicant carries a high
+        # score. Lower this toward 0.5 to reproduce the step-up → cancel path.
+        deviceTrustScore:
+          type: number
+          default: 0.9
+          minimum: 0
+          maximum: 1
+      required:
+        - loanAmount
+        - creditScore
+        - debtToIncomeRatio
+        - employmentYears
+        - isExistingCustomer
+        - priorDefaults
+        - deviceTrustScore
+
+  launch:
+    modeName: macp.mode.decision.v1
+    modeVersion: 1.0.0
+    configurationVersion: config.default
+    policyVersion: policy.lending.conservative
+    policyHints: !include ../../../../_shared/policy-hints/lending-conservative.yaml
+    ttlMs: 300000
+    initiatorParticipantId: risk-agent
+
+    participants: !include ../../../../_shared/participants/4-agent-lending.yaml
+
+    commitments: !include ../../../../_shared/commitments/lending.yaml
+
+    contextTemplate:
+      applicantId: "{{ inputs.applicantId }}"
+      loanAmount: "{{ inputs.loanAmount }}"
+      creditScore: "{{ inputs.creditScore }}"
+      debtToIncomeRatio: "{{ inputs.debtToIncomeRatio }}"
+      employmentYears: "{{ inputs.employmentYears }}"
+      isExistingCustomer: "{{ inputs.isExistingCustomer }}"
+      priorDefaults: "{{ inputs.priorDefaults }}"
+      deviceTrustScore: "{{ inputs.deviceTrustScore }}"
+      transactionAmount: "{{ inputs.loanAmount }}"
+      accountAgeDays: 365
+      isVipCustomer: "{{ inputs.isExistingCustomer }}"
+      priorChargebacks: "{{ inputs.priorDefaults }}"
+
+    metadataTemplate:
+      demoType: loan-underwriting-approve
+      decisionOwner: risk-agent
+      specialists:
+        - fraud-agent
+        - growth-agent
+        - compliance-agent
+      intent: evaluate a low-risk loan application that reaches an approved commitment
+
+    kickoffTemplate:
+      - from: risk-agent
+        to: [fraud-agent, growth-agent, compliance-agent]
+        kind: proposal
+        messageType: Proposal
+        payloadEnvelope:
+          encoding: proto
+          proto:
+            typeName: macp.modes.decision.v1.ProposalPayload
+            value:
+              proposal_id: "{{ inputs.applicantId }}-loan-review"
+              option: evaluate_loan_application
+              rationale: Decide whether to approve, conditionally approve, or decline the loan.
+
+  execution:
+    tags: [demo, lending, mixed-framework, examples, approval-path]
+    requester:
+      actorId: macp-playground
+      actorType: service
+
+  outputs:
+    expectedDecisionKinds:
+      - approve
+      - conditional_approve
+      - decline
+    expectedSignals:
+      - strong_credit_score
+      - low_dti_ratio
+      - no_prior_defaults
+      - established_customer
