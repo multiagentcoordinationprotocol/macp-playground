@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:20-slim AS builder
+FROM node:26-slim AS builder
 WORKDIR /app
 COPY package.json package-lock.json* .npmrc ./
 ARG NODE_AUTH_TOKEN
@@ -10,7 +10,7 @@ COPY tsconfig.json tsconfig.build.json nest-cli.json ./
 COPY src/ src/
 RUN npm run build
 
-FROM node:20-slim
+FROM node:26-slim
 WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 python3-pip python3-venv gcc python3-dev libffi-dev \
