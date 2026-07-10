@@ -7,13 +7,25 @@ on:
       - 'docs/**'
       - 'README.md'
 
+permissions: {}
+
 jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
+      # Zero-PAT: mint a short-lived macp-deps-bot token scoped to macp-ui-console.
+      - name: Mint GitHub App token
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.MACP_BOT_APP_ID }}
+          private-key: ${{ secrets.MACP_BOT_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: macp-ui-console
+
       - name: Trigger macp-ui-console docs sync
         uses: peter-evans/repository-dispatch@v4
         with:
-          token: ${{ secrets.NOTIFY_WEBSITE }}
+          token: ${{ steps.app.outputs.token }}
           repository: multiagentcoordinationprotocol/macp-ui-console
           event-type: docs-updated
