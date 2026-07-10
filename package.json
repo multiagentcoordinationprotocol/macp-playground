@@ -27,10 +27,10 @@
     "scenario:lint": "ts-node scripts/scenario.ts lint"
   },
   "dependencies": {
-    "@nestjs/common": "^11.1.16",
-    "@nestjs/core": "^11.1.16",
-    "@nestjs/platform-express": "^11.1.12",
-    "@nestjs/swagger": "^11.2.6",
+    "@nestjs/common": "^11.1.28",
+    "@nestjs/core": "^11.1.28",
+    "@nestjs/platform-express": "^11.1.28",
+    "@nestjs/swagger": "^11.4.5",
     "@nestjs/throttler": "^6.4.0",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
@@ -44,9 +44,9 @@
     "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
-    "@nestjs/cli": "^11.0.0",
+    "@nestjs/cli": "^11.0.24",
     "@nestjs/schematics": "^11.0.0",
-    "@nestjs/testing": "^11.1.16",
+    "@nestjs/testing": "^11.1.28",
     "@types/express": "^5.0.3",
     "@types/jest": "^29.5.14",
     "@types/js-yaml": "^4.0.9",
