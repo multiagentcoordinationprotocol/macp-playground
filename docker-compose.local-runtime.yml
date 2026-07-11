@@ -1,0 +1,6 @@
+# Override: use a locally-built runtime image instead of the GHCR pull.
+# Usage: docker compose -f docker-compose.fullstack.yml -f docker-compose.local-runtime.yml up
+services:
+  runtime:
+    image: macp-runtime:0.5.0-local
+    pull_policy: never
