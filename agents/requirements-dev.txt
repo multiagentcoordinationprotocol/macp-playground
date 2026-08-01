@@ -2,4 +2,4 @@
 # framework dependencies in requirements.txt: the tests target the pure
 # mapper modules so CI stays fast and dependency-light.
 pytest>=9.1.1,<10
-ruff>=0.15.21,<1
+ruff>=0.16.0,<1
