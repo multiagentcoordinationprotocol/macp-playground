@@ -182,7 +182,7 @@ describe('PolicyRegistrarService', () => {
       ok: false,
       error: 'FAILED_PRECONDITION: policy registry is read-only (MACP_POLICIES_DIR)'
     });
-    getPolicyMock.mockImplementation((policyId: string) => Promise.resolve({ policyId }));
+    getPolicyMock.mockImplementation((policyId: string) => Promise.resolve({ policyId, schemaVersion: 3 }));
 
     await service.onApplicationBootstrap();
 
@@ -198,7 +198,7 @@ describe('PolicyRegistrarService', () => {
   it('switches to verification when registerPolicy throws FAILED_PRECONDITION', async () => {
     const { service } = buildService({ policies: [claimsPolicy, fraudPolicy] });
     registerPolicyMock.mockRejectedValueOnce(new Error('13 FAILED_PRECONDITION: registry is file-managed'));
-    getPolicyMock.mockImplementation((policyId: string) => Promise.resolve({ policyId }));
+    getPolicyMock.mockImplementation((policyId: string) => Promise.resolve({ policyId, schemaVersion: 3 }));
 
     await service.onApplicationBootstrap();
 
@@ -211,7 +211,7 @@ describe('PolicyRegistrarService', () => {
     const { service } = buildService({ policies: [claimsPolicy, fraudPolicy] });
     registerPolicyMock.mockResolvedValueOnce({ ok: false, error: 'FAILED_PRECONDITION: read-only registry' });
     getPolicyMock
-      .mockResolvedValueOnce({ policyId: 'policy.claims.majority' }) // present
+      .mockResolvedValueOnce({ policyId: 'policy.claims.majority', schemaVersion: 3 }) // present
       .mockRejectedValueOnce(new Error('NOT_FOUND: no such policy')); // missing
 
     await service.onApplicationBootstrap();
@@ -220,5 +220,89 @@ describe('PolicyRegistrarService', () => {
     expect(errorSpy).toHaveBeenCalledTimes(1);
     expect(errorSpy.mock.calls[0][0]).toContain('policy.fraud.unanimous.json');
     errorSpy.mockRestore();
+  });
+
+  describe('schema_version drift detection', () => {
+    it('flags a runtime holding a stale schema_version behind an "already registered" response', async () => {
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      const { service } = buildService({ policies: [claimsPolicy] });
+      registerPolicyMock.mockResolvedValueOnce({
+        ok: false,
+        error: 'policy with id policy.claims.majority already exists'
+      });
+      getPolicyMock.mockResolvedValueOnce({ policyId: 'policy.claims.majority', schemaVersion: 1 });
+
+      await service.onApplicationBootstrap();
+
+      expect(getPolicyMock).toHaveBeenCalledWith('policy.claims.majority');
+      // One error line per drifted policy, plus one summary error line.
+      expect(errorSpy).toHaveBeenCalledTimes(2);
+      const message = errorSpy.mock.calls[0][0] as string;
+      expect(message).toContain('policy_schema_drift');
+      expect(message).toContain('policy.claims.majority');
+      expect(message).toContain('runtime_schema_version=1');
+      expect(message).toContain('local_schema_version=3');
+      errorSpy.mockRestore();
+    });
+
+    it('does not flag drift when the "already registered" runtime copy matches the local schema_version', async () => {
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      const { service } = buildService({ policies: [claimsPolicy] });
+      registerPolicyMock.mockResolvedValueOnce({
+        ok: false,
+        error: 'policy with id policy.claims.majority already exists'
+      });
+      getPolicyMock.mockResolvedValueOnce({ policyId: 'policy.claims.majority', schemaVersion: 3 });
+
+      await service.onApplicationBootstrap();
+
+      expect(errorSpy).not.toHaveBeenCalled();
+      errorSpy.mockRestore();
+    });
+
+    it('flags drift on the read-only verification path too', async () => {
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      const { service } = buildService({ policies: [claimsPolicy] });
+      registerPolicyMock.mockResolvedValueOnce({
+        ok: false,
+        error: 'FAILED_PRECONDITION: policy registry is read-only (MACP_POLICIES_DIR)'
+      });
+      getPolicyMock.mockResolvedValueOnce({ policyId: 'policy.claims.majority', schemaVersion: 2 });
+
+      await service.onApplicationBootstrap();
+
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('policy_schema_drift'));
+      errorSpy.mockRestore();
+    });
+
+    it('logs a summary error line when any policy has schema drift', async () => {
+      const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+      jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      const { service } = buildService({ policies: [claimsPolicy] });
+      registerPolicyMock.mockResolvedValueOnce({
+        ok: false,
+        error: 'policy with id policy.claims.majority already exists'
+      });
+      getPolicyMock.mockResolvedValueOnce({ policyId: 'policy.claims.majority', schemaVersion: 1 });
+
+      await service.onApplicationBootstrap();
+
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('schema_drift=1'));
+      logSpy.mockRestore();
+    });
+
+    it('does not throw when the schema-drift follow-up getPolicy call itself fails', async () => {
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      const { service } = buildService({ policies: [claimsPolicy] });
+      registerPolicyMock.mockResolvedValueOnce({
+        ok: false,
+        error: 'policy with id policy.claims.majority already exists'
+      });
+      getPolicyMock.mockRejectedValueOnce(new Error('grpc UNAVAILABLE'));
+
+      await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('policy_schema_drift_check_failed'));
+      warnSpy.mockRestore();
+    });
   });
 });

@@ -102,11 +102,22 @@ export function createPolicyStrategy(policyHints: PolicyHints | undefined): Poli
             policyApplied: 'unanimous'
           };
         }
-        if (approvals === total) {
+        if (total > 0 && approvals === total) {
           return {
             action: 'approve',
             vote: 'approve',
             reason: 'policy unanimous: all participants approved',
+            policyApplied: 'unanimous'
+          };
+        }
+        if (total === 0) {
+          // Fail closed on an empty tally rather than treating "no signals"
+          // as vacuously unanimous (RFC-MACP-0012 §4.1 empty-tally rule,
+          // mirrored from macp-runtime's schema_version >= 3 evaluator arm).
+          return {
+            action: 'step_up',
+            vote: 'approve',
+            reason: 'policy unanimous: no signals received, cannot confirm unanimity',
             policyApplied: 'unanimous'
           };
         }

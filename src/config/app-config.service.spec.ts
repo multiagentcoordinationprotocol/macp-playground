@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { AppConfigService, readBoolean, readNumber, readStringList } from './app-config.service';
 import { AppException } from '../errors/app-exception';
 import { ErrorCode } from '../errors/error-codes';
@@ -150,6 +151,20 @@ describe('AppConfigService', () => {
       expect(config.authScopeOverrides).toEqual({});
     });
 
+    it('falls back to the 5000ms default when MACP_AUTH_SERVICE_TIMEOUT_MS is invalid', () => {
+      // AuthTokenMinterService.requestToken passes this straight into
+      // AbortSignal.timeout(), which throws on an invalid value — and unlike
+      // the control-plane client, that throw is fatal (AUTH_MINT_FAILED,
+      // 502) rather than a caught, logged, non-fatal warn. A misconfigured
+      // value here breaks every single agent spawn, not just CP-1 submission.
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      process.env.MACP_AUTH_SERVICE_TIMEOUT_MS = '-1';
+      const config = new AppConfigService();
+      expect(config.authServiceTimeoutMs).toBe(5000);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('MACP_AUTH_SERVICE_TIMEOUT_MS'));
+      warnSpy.mockRestore();
+    });
+
     it('onModuleInit throws INVALID_CONFIG when MACP_AUTH_SERVICE_URL is missing', () => {
       delete process.env.MACP_AUTH_SERVICE_URL;
       const config = new AppConfigService();
@@ -196,6 +211,53 @@ describe('AppConfigService', () => {
         expect(err).toBeInstanceOf(AppException);
         expect((err as AppException).errorCode).toBe(ErrorCode.INVALID_CONFIG);
       }
+    });
+  });
+
+  describe('control-plane config (MACP_CONTROL_PLANE_*)', () => {
+    it('defaults controlPlaneUrl/apiKey to empty and controlPlaneTimeoutMs to 5000', () => {
+      delete process.env.MACP_CONTROL_PLANE_URL;
+      delete process.env.MACP_CONTROL_PLANE_TIMEOUT_MS;
+      delete process.env.MACP_CONTROL_PLANE_API_KEY;
+      const config = new AppConfigService();
+      expect(config.controlPlaneUrl).toBe('');
+      expect(config.controlPlaneTimeoutMs).toBe(5000);
+      expect(config.controlPlaneApiKey).toBe('');
+    });
+
+    it('reads a valid MACP_CONTROL_PLANE_TIMEOUT_MS as-is', () => {
+      process.env.MACP_CONTROL_PLANE_TIMEOUT_MS = '2500';
+      const config = new AppConfigService();
+      expect(config.controlPlaneTimeoutMs).toBe(2500);
+    });
+
+    it.each([
+      ['0', 'zero'],
+      ['-100', 'negative'],
+      ['1500.5', 'non-integer'],
+      ['not-a-number', 'unparseable'],
+      // AbortSignal.timeout()'s ceiling is 4294967295 (2^32-1, unsigned
+      // 32-bit max, verified empirically); one past it throws a RangeError
+      // just like the negative/non-integer cases do.
+      ['4294967296', 'exceeds AbortSignal.timeout() max (2^32-1)']
+    ])('falls back to the 5000ms default when MACP_CONTROL_PLANE_TIMEOUT_MS is %s (%s)', (value) => {
+      process.env.MACP_CONTROL_PLANE_TIMEOUT_MS = value;
+      const config = new AppConfigService();
+      expect(config.controlPlaneTimeoutMs).toBe(5000);
+    });
+
+    it('accepts 4294967295 (2^32-1), the exact AbortSignal.timeout() ceiling', () => {
+      process.env.MACP_CONTROL_PLANE_TIMEOUT_MS = '4294967295';
+      const config = new AppConfigService();
+      expect(config.controlPlaneTimeoutMs).toBe(4294967295);
+    });
+
+    it('warns when MACP_CONTROL_PLANE_TIMEOUT_MS is invalid', () => {
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      process.env.MACP_CONTROL_PLANE_TIMEOUT_MS = '-1';
+      new AppConfigService();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('MACP_CONTROL_PLANE_TIMEOUT_MS'));
+      warnSpy.mockRestore();
     });
   });
 });

@@ -3,6 +3,15 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { PolicyDefinition } from '../contracts/policy';
 
+/**
+ * Mirrors `SUPPORTED_SCHEMA_VERSIONS` in macp-runtime's
+ * `crates/macp-policy/src/evaluator.rs`. A policy above this version loads
+ * and registers cleanly but the runtime denies every commitment under it
+ * with "unsupported policy schema version" — a silent-at-authoring-time,
+ * loud-at-runtime failure mode this check catches early.
+ */
+const MAX_SUPPORTED_SCHEMA_VERSION = 3;
+
 @Injectable()
 export class PolicyLoaderService {
   private readonly logger = new Logger(PolicyLoaderService.name);
@@ -34,6 +43,10 @@ export class PolicyLoaderService {
     }
     if (!policy.schema_version || policy.schema_version < 1) {
       errors.push('schema_version must be >= 1');
+    } else if (policy.schema_version > MAX_SUPPORTED_SCHEMA_VERSION) {
+      errors.push(
+        `schema_version ${policy.schema_version} exceeds the highest version this evaluator supports (${MAX_SUPPORTED_SCHEMA_VERSION}); every commitment under this policy will be denied with "unsupported policy schema version"`
+      );
     }
     if (!policy.rules || typeof policy.rules !== 'object') {
       errors.push('rules object is required');
@@ -52,8 +65,18 @@ export class PolicyLoaderService {
     }
 
     if (objection_handling) {
-      if (objection_handling.veto_threshold != null && objection_handling.veto_threshold < 1) {
-        errors.push('veto_threshold must be >= 1');
+      if (
+        objection_handling.critical_severity_vetoes &&
+        (objection_handling.veto_threshold == null || objection_handling.veto_threshold < 1)
+      ) {
+        errors.push('veto_threshold must be >= 1 when critical_severity_vetoes is true');
+      }
+      if (
+        !objection_handling.critical_severity_vetoes &&
+        objection_handling.veto_threshold != null &&
+        objection_handling.veto_threshold !== 0
+      ) {
+        errors.push('veto_threshold is set but critical_severity_vetoes is false — the threshold is never read');
       }
     }
 

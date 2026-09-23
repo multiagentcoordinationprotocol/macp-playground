@@ -91,10 +91,11 @@ for agent logic and the in-tree `PolicyStrategy`:
 | `vetoEnabled`         | `false` | Whether critical-severity objections veto                           |
 | `vetoThreshold`       | `1`     | Number of critical objections required for veto                     |
 | `minimumConfidence`   | `0.0`   | Minimum confidence for an evaluation to count                       |
-| `designatedRoles`     | `[]`    | Roles allowed to author the terminal commitment                     |
+| `designatedRoles`     | `[]`    | **Informational only — `PolicyStrategy` never reads it.** Commitment authority is enforced solely by the runtime against `rules.commitment.designated_roles` on the registered policy, a separate field with a different value domain (participant IDs, not role labels). |
 
 See [`docs/policy-authoring.md`](policy-authoring.md) for how these hints
-map from the canonical policy descriptor.
+map from the canonical policy descriptor, and for why `designatedRoles` here
+is unrelated to `rules.commitment.designated_roles` despite the name.
 
 ## Worker lifecycle (direct-agent-auth)
 

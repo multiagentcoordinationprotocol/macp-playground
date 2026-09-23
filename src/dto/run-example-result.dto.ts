@@ -1,6 +1,20 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CompileLaunchResultDto } from './compile-launch-result.dto';
 
+class ControlPlaneRunDto {
+  @ApiProperty()
+  runId!: string;
+
+  @ApiProperty()
+  sessionId!: string;
+
+  @ApiPropertyOptional()
+  traceId?: string;
+
+  @ApiProperty({ example: 'queued' })
+  status!: string;
+}
+
 class HostedAgentDto {
   @ApiProperty()
   participantId!: string;
@@ -48,4 +62,12 @@ export class RunExampleResultDto {
 
   @ApiPropertyOptional()
   sessionId?: string;
+
+  @ApiPropertyOptional({
+    type: ControlPlaneRunDto,
+    description:
+      'Present only when MACP_CONTROL_PLANE_URL is configured and the CP-1 POST /runs submission succeeded. ' +
+      'Absent when unconfigured or on any submission failure — CP-1 registration is best-effort and never blocks bootstrap.'
+  })
+  controlPlaneRun?: ControlPlaneRunDto;
 }
