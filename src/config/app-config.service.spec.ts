@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { AppConfigService, readBoolean, readNumber, readStringList } from './app-config.service';
 import { AppException } from '../errors/app-exception';
 import { ErrorCode } from '../errors/error-codes';
@@ -196,6 +197,43 @@ describe('AppConfigService', () => {
         expect(err).toBeInstanceOf(AppException);
         expect((err as AppException).errorCode).toBe(ErrorCode.INVALID_CONFIG);
       }
+    });
+  });
+
+  describe('control-plane config (MACP_CONTROL_PLANE_*)', () => {
+    it('defaults controlPlaneUrl/apiKey to empty and controlPlaneTimeoutMs to 5000', () => {
+      delete process.env.MACP_CONTROL_PLANE_URL;
+      delete process.env.MACP_CONTROL_PLANE_TIMEOUT_MS;
+      delete process.env.MACP_CONTROL_PLANE_API_KEY;
+      const config = new AppConfigService();
+      expect(config.controlPlaneUrl).toBe('');
+      expect(config.controlPlaneTimeoutMs).toBe(5000);
+      expect(config.controlPlaneApiKey).toBe('');
+    });
+
+    it('reads a valid MACP_CONTROL_PLANE_TIMEOUT_MS as-is', () => {
+      process.env.MACP_CONTROL_PLANE_TIMEOUT_MS = '2500';
+      const config = new AppConfigService();
+      expect(config.controlPlaneTimeoutMs).toBe(2500);
+    });
+
+    it.each([
+      ['0', 'zero'],
+      ['-100', 'negative'],
+      ['1500.5', 'non-integer'],
+      ['not-a-number', 'unparseable']
+    ])('falls back to the 5000ms default when MACP_CONTROL_PLANE_TIMEOUT_MS is %s (%s)', (value) => {
+      process.env.MACP_CONTROL_PLANE_TIMEOUT_MS = value;
+      const config = new AppConfigService();
+      expect(config.controlPlaneTimeoutMs).toBe(5000);
+    });
+
+    it('warns when MACP_CONTROL_PLANE_TIMEOUT_MS is invalid', () => {
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      process.env.MACP_CONTROL_PLANE_TIMEOUT_MS = '-1';
+      new AppConfigService();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('MACP_CONTROL_PLANE_TIMEOUT_MS'));
+      warnSpy.mockRestore();
     });
   });
 });

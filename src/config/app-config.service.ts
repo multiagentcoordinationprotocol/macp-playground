@@ -140,7 +140,15 @@ export class AppConfigService implements OnModuleInit {
    * best-effort and non-fatal on failure (see `ControlPlaneRunClient`).
    */
   readonly controlPlaneUrl: string = process.env.MACP_CONTROL_PLANE_URL ?? '';
-  readonly controlPlaneTimeoutMs: number = readNumber('MACP_CONTROL_PLANE_TIMEOUT_MS', 5000);
+  /**
+   * Unlike `readNumber`'s other callers, this is validated for positivity —
+   * `AbortSignal.timeout()` throws a `RangeError` on a negative or
+   * non-integer value, which `ControlPlaneRunClient` would otherwise report
+   * as a misleading `reason=network:...` on every single submission. Falls
+   * back to the 5000ms default (with a startup warning) rather than
+   * crashing boot, matching this field's non-fatal, best-effort design.
+   */
+  readonly controlPlaneTimeoutMs: number = this.readValidatedTimeoutMs('MACP_CONTROL_PLANE_TIMEOUT_MS', 5000);
   /**
    * Optional bearer sent as `Authorization: Bearer <token>` on every CP-1
    * request. The control-plane's global `AuthGuard` requires an
@@ -165,6 +173,18 @@ export class AppConfigService implements OnModuleInit {
     }
     this.validateAuthConfig();
     this.logger.log(`auth: jwt (auth-service=${this.authServiceUrl})`);
+  }
+
+  private readValidatedTimeoutMs(name: string, defaultValue: number): number {
+    const value = readNumber(name, defaultValue);
+    if (!Number.isInteger(value) || value <= 0) {
+      this.logger.warn(
+        `${name}=${process.env[name]} is not a positive integer — falling back to ${defaultValue}ms. ` +
+          `AbortSignal.timeout() throws on an invalid value, which would otherwise silently break every submission.`
+      );
+      return defaultValue;
+    }
+    return value;
   }
 
   private validateAuthConfig(): void {

@@ -5,6 +5,16 @@ import {
   claimsScenarioRunRequest
 } from '../fixtures/integration-requests';
 
+// CP-1 submission is only observable through MockControlPlane, which only
+// exists in `mock` mode (`test/helpers/integration-test-app.ts` leaves
+// `mockControlPlane` null and `controlPlaneUrl` unset in `docker`/`remote`
+// mode). Without this guard, `describe.skip` at load time isn't possible
+// (ctx isn't populated until beforeAll), so these blocks would run in
+// docker/remote mode too and fail on `ctx.mockControlPlane` being null
+// rather than being skipped as not-applicable.
+const controlPlaneMode = process.env.INTEGRATION_CONTROL_PLANE ?? 'mock';
+const describeMockOnly = controlPlaneMode === 'mock' ? describe : describe.skip;
+
 describe('Example Run (integration)', () => {
   let ctx: IntegrationTestContext;
 
@@ -61,7 +71,7 @@ describe('Example Run (integration)', () => {
     });
   });
 
-  describe('CP-1 run submission (POST /runs)', () => {
+  describeMockOnly('CP-1 run submission (POST /runs)', () => {
     beforeEach(() => {
       ctx.mockControlPlane?.clearRequests();
     });
@@ -87,7 +97,59 @@ describe('Example Run (integration)', () => {
     });
   });
 
-  describe('CP-1 auth rejection is non-fatal', () => {
+  describeMockOnly('CP-1 auth header (happy path)', () => {
+    let authenticatedCtx: IntegrationTestContext;
+
+    beforeAll(async () => {
+      // Unlike the "CP-1 auth rejection" context below, this one configures
+      // matching credentials on both sides — the shape docker-compose.fullstack.yml
+      // actually ships (AUTH_API_KEYS: demo-key / MACP_CONTROL_PLANE_API_KEY: demo-key).
+      // Only the *failing* auth path had coverage before this test existed.
+      authenticatedCtx = await createIntegrationTestApp({
+        mockControlPlaneOptions: { requiredBearerToken: 'demo-key' },
+        controlPlaneApiKey: 'demo-key'
+      });
+    });
+
+    afterAll(async () => {
+      if (authenticatedCtx) await authenticatedCtx.cleanup();
+    });
+
+    it('sends Authorization: Bearer <key> and the control-plane accepts the submission', async () => {
+      const result = (await authenticatedCtx.client.runExample(fraudScenarioRunRequest())) as any;
+
+      expect(authenticatedCtx.mockControlPlane?.createRunRequests).toHaveLength(1);
+      expect(authenticatedCtx.mockControlPlane!.createRunRequests[0].headers['authorization']).toBe(
+        'Bearer demo-key'
+      );
+      expect(result.controlPlaneRun).toBeDefined();
+    });
+  });
+
+  describeMockOnly('CP-1 submission skipped when controlPlaneUrl is unset', () => {
+    let noUrlCtx: IntegrationTestContext;
+
+    beforeAll(async () => {
+      noUrlCtx = await createIntegrationTestApp({ controlPlaneUrl: '' });
+    });
+
+    afterAll(async () => {
+      if (noUrlCtx) await noUrlCtx.cleanup();
+    });
+
+    it('never calls the control-plane and still completes the launch', async () => {
+      const result = (await noUrlCtx.client.runExample(fraudScenarioRunRequest())) as any;
+
+      expect(result.hostedAgents).toHaveLength(4);
+      expect(result.controlPlaneRun).toBeUndefined();
+      // This ctx's own mock never receives a request (it exists only so
+      // clearRequests/createRunRequests are available; controlPlaneUrl is
+      // explicitly unset above, independent of where the mock listens).
+      expect(noUrlCtx.mockControlPlane?.createRunRequests).toHaveLength(0);
+    });
+  });
+
+  describeMockOnly('CP-1 auth rejection is non-fatal', () => {
     let rejectingCtx: IntegrationTestContext;
 
     beforeAll(async () => {

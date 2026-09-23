@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { AppConfigService } from '../config/app-config.service';
 import { RunDescriptor } from '../contracts/run-descriptor';
 import { ControlPlaneRunClient } from './control-plane-run-client.service';
@@ -13,12 +14,14 @@ function stubConfig(overrides: Partial<AppConfigService> = {}): AppConfigService
   } as unknown as AppConfigService;
 }
 
+const SESSION_ID = '00000000-0000-4000-8000-000000000001';
+
 function buildDescriptor(): RunDescriptor {
   return {
     mode: 'sandbox',
     runtime: { kind: 'rust' },
     session: {
-      sessionId: '00000000-0000-4000-8000-000000000001',
+      sessionId: SESSION_ID,
       modeName: 'macp.mode.decision.v1',
       modeVersion: '1.0.0',
       configurationVersion: 'config.default',
@@ -64,7 +67,7 @@ describe('ControlPlaneRunClient', () => {
       return Promise.resolve({
         ok: true,
         status: 201,
-        json: async () => ({ runId: 'run-1', sessionId: '00000000-0000-4000-8000-000000000001', status: 'queued' }),
+        json: async () => ({ runId: 'run-1', sessionId: SESSION_ID, status: 'queued' }),
         text: async () => ''
       });
     }) as unknown as typeof fetch;
@@ -77,7 +80,7 @@ describe('ControlPlaneRunClient', () => {
     expect(calls[0].url).toBe('http://control-plane.local:3001/runs');
     expect(calls[0].init.method).toBe('POST');
     expect(JSON.parse(calls[0].init.body as string)).toEqual(descriptor);
-    expect(result).toEqual({ runId: 'run-1', sessionId: '00000000-0000-4000-8000-000000000001', status: 'queued' });
+    expect(result).toEqual({ runId: 'run-1', sessionId: SESSION_ID, status: 'queued' });
   });
 
   it('sends no Authorization header when controlPlaneApiKey is unset', async () => {
@@ -87,7 +90,7 @@ describe('ControlPlaneRunClient', () => {
       return Promise.resolve({
         ok: true,
         status: 201,
-        json: async () => ({ runId: 'run-1', sessionId: 's', status: 'queued' }),
+        json: async () => ({ runId: 'run-1', sessionId: SESSION_ID, status: 'queued' }),
         text: async () => ''
       });
     }) as unknown as typeof fetch;
@@ -106,7 +109,7 @@ describe('ControlPlaneRunClient', () => {
       return Promise.resolve({
         ok: true,
         status: 201,
-        json: async () => ({ runId: 'run-1', sessionId: 's', status: 'queued' }),
+        json: async () => ({ runId: 'run-1', sessionId: SESSION_ID, status: 'queued' }),
         text: async () => ''
       });
     }) as unknown as typeof fetch;
@@ -163,7 +166,7 @@ describe('ControlPlaneRunClient', () => {
   });
 
   it('returns null when response is missing runId', async () => {
-    global.fetch = fetchOk({ sessionId: 's', status: 'queued' });
+    global.fetch = fetchOk({ sessionId: SESSION_ID, status: 'queued' });
     const client = new ControlPlaneRunClient(stubConfig());
 
     const result = await client.submitRun(buildDescriptor());
@@ -178,7 +181,7 @@ describe('ControlPlaneRunClient', () => {
       return Promise.resolve({
         ok: true,
         status: 201,
-        json: async () => ({ runId: 'run-1', sessionId: 's', status: 'queued' }),
+        json: async () => ({ runId: 'run-1', sessionId: SESSION_ID, status: 'queued' }),
         text: async () => ''
       });
     }) as unknown as typeof fetch;
@@ -194,5 +197,152 @@ describe('ControlPlaneRunClient', () => {
     const client = new ControlPlaneRunClient(stubConfig());
 
     await expect(client.submitRun(buildDescriptor())).resolves.toBeNull();
+  });
+
+  it('logs a network failure reason even when the rejection is not an Error', async () => {
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    global.fetch = jest.fn().mockRejectedValue('some non-Error rejection') as unknown as typeof fetch;
+    const client = new ControlPlaneRunClient(stubConfig());
+
+    const result = await client.submitRun(buildDescriptor());
+
+    expect(result).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('reason=network:unknown network error'));
+    warnSpy.mockRestore();
+  });
+
+  it('returns null when the JSON response body is null', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => null,
+      text: async () => 'null'
+    }) as unknown as typeof fetch;
+    const client = new ControlPlaneRunClient(stubConfig());
+
+    const result = await client.submitRun(buildDescriptor());
+
+    expect(result).toBeNull();
+  });
+
+  it('returns null when the response is missing status', async () => {
+    global.fetch = fetchOk({ runId: 'run-1', sessionId: SESSION_ID });
+    const client = new ControlPlaneRunClient(stubConfig());
+
+    const result = await client.submitRun(buildDescriptor());
+
+    expect(result).toBeNull();
+  });
+
+  it('returns null when the response sessionId does not match the request sessionId', async () => {
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    global.fetch = fetchOk({ runId: 'run-1', sessionId: 'some-other-session-id', status: 'queued' });
+    const client = new ControlPlaneRunClient(stubConfig());
+
+    const result = await client.submitRun(buildDescriptor());
+
+    expect(result).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('reason=session_id_mismatch'));
+    warnSpy.mockRestore();
+  });
+
+  it('strips trailing slashes from controlPlaneUrl before appending /runs', async () => {
+    const calls: FetchArgs[] = [];
+    global.fetch = jest.fn().mockImplementation((url, init) => {
+      calls.push({ url: url as string, init: init as RequestInit });
+      return Promise.resolve({
+        ok: true,
+        status: 201,
+        json: async () => ({ runId: 'run-1', sessionId: SESSION_ID, status: 'queued' }),
+        text: async () => ''
+      });
+    }) as unknown as typeof fetch;
+
+    const client = new ControlPlaneRunClient(stubConfig({ controlPlaneUrl: 'http://control-plane.local:3001///' }));
+    await client.submitRun(buildDescriptor());
+
+    expect(calls[0].url).toBe('http://control-plane.local:3001/runs');
+  });
+
+  it('derives the AbortSignal timeout from controlPlaneTimeoutMs', async () => {
+    const timeoutSpy = jest.spyOn(AbortSignal, 'timeout');
+    global.fetch = fetchOk({ runId: 'run-1', sessionId: SESSION_ID, status: 'queued' });
+
+    const client = new ControlPlaneRunClient(stubConfig({ controlPlaneTimeoutMs: 1234 }));
+    await client.submitRun(buildDescriptor());
+
+    expect(timeoutSpy).toHaveBeenCalledWith(1234);
+    timeoutSpy.mockRestore();
+  });
+
+  it('passes redirect: "error" so a redirected POST fails instead of being followed', async () => {
+    const calls: FetchArgs[] = [];
+    global.fetch = jest.fn().mockImplementation((url, init) => {
+      calls.push({ url: url as string, init: init as RequestInit });
+      return Promise.resolve({
+        ok: true,
+        status: 201,
+        json: async () => ({ runId: 'run-1', sessionId: SESSION_ID, status: 'queued' }),
+        text: async () => ''
+      });
+    }) as unknown as typeof fetch;
+
+    const client = new ControlPlaneRunClient(stubConfig());
+    await client.submitRun(buildDescriptor());
+
+    expect(calls[0].init.redirect).toBe('error');
+  });
+
+  it('never logs the configured API key on success or failure paths', async () => {
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    const client = new ControlPlaneRunClient(stubConfig({ controlPlaneApiKey: 'super-secret-api-key' }));
+
+    global.fetch = fetchOk({ runId: 'run-1', sessionId: SESSION_ID, status: 'queued' });
+    await client.submitRun(buildDescriptor());
+
+    global.fetch = fetchFail(401, 'Unauthorized');
+    await client.submitRun(buildDescriptor());
+
+    global.fetch = fetchThrow(new Error('ECONNREFUSED'));
+    await client.submitRun(buildDescriptor());
+
+    const allLoggedText = [...warnSpy.mock.calls, ...logSpy.mock.calls].map((args) => String(args[0])).join('\n');
+    expect(allLoggedText).not.toContain('super-secret-api-key');
+    warnSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+
+  it('falls back to an empty body in the failure log when reading the error body itself throws', async () => {
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({}),
+      text: async () => {
+        throw new Error('stream already consumed');
+      }
+    }) as unknown as typeof fetch;
+    const client = new ControlPlaneRunClient(stubConfig());
+
+    const result = await client.submitRun(buildDescriptor());
+
+    expect(result).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('reason=http_500 body='));
+    warnSpy.mockRestore();
+  });
+
+  it('sanitizes newlines out of the response body before logging it (log-injection guard)', async () => {
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    global.fetch = fetchFail(500, 'line one\nLOG] FORGED ENTRY\r\nline two');
+    const client = new ControlPlaneRunClient(stubConfig());
+
+    await client.submitRun(buildDescriptor());
+
+    const loggedLines = warnSpy.mock.calls.map((args) => String(args[0]));
+    expect(loggedLines.some((line) => line.includes('line one LOG] FORGED ENTRY line two'))).toBe(true);
+    expect(loggedLines.some((line) => line.includes('\n'))).toBe(false);
+    expect(loggedLines.some((line) => line.includes('\r'))).toBe(false);
+    warnSpy.mockRestore();
   });
 });

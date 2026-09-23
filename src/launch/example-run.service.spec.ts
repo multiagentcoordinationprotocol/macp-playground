@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { AppConfigService } from '../config/app-config.service';
 import { CompileLaunchResult } from '../contracts/launch';
 import { RunDescriptorResponse } from '../contracts/run-descriptor';
@@ -196,6 +197,21 @@ describe('ExampleRunService', () => {
       expect(hosting.attach).toHaveBeenCalled();
     });
 
+    it('logs and continues when submitRun rejects with a non-Error value', async () => {
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      controlPlaneClient.submitRun.mockRejectedValue('some non-Error rejection');
+
+      const result = await service.run({
+        scenarioRef: 'fraud/high-value-new-device@1.0.0',
+        inputs: {}
+      });
+
+      expect(result.controlPlaneRun).toBeUndefined();
+      expect(result.hostedAgents).toEqual(attachedAgents);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('reason=unknown error'));
+      warnSpy.mockRestore();
+    });
+
     it('still rejects run() when hosting.attach fails, independent of control-plane outcome', async () => {
       hosting.attach.mockRejectedValue(new Error('bootstrap failed'));
       controlPlaneClient.submitRun.mockResolvedValue(controlPlaneResponse);
@@ -203,6 +219,46 @@ describe('ExampleRunService', () => {
       await expect(service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', inputs: {} })).rejects.toThrow(
         'bootstrap failed'
       );
+    });
+
+    it('submits an unmutated snapshot of the descriptor even though hosting.attach mutates session.metadata in place', async () => {
+      // Regression test for the race-condition fix in example-run.service.ts:
+      // hosting.attach mutates compiled.runDescriptor.session.metadata in
+      // place (adding hostedParticipants) once agents are resolved. Before
+      // the structuredClone fix, submitRun and attach raced on the *same*
+      // object, so a reordering could leak that mutation into the submitted
+      // descriptor (or vice versa). This pins that submitRun always receives
+      // a snapshot taken before attach runs, regardless of interleaving.
+      hosting.attach.mockImplementation(async (compiledArg) => {
+        compiledArg.runDescriptor.session.metadata = {
+          ...(compiledArg.runDescriptor.session.metadata ?? {}),
+          hostedParticipants: ['risk-agent']
+        };
+        return attachedAgents;
+      });
+      controlPlaneClient.submitRun.mockResolvedValue(controlPlaneResponse);
+
+      await service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', inputs: {} });
+
+      const submittedDescriptor = controlPlaneClient.submitRun.mock.calls[0][0];
+      expect(submittedDescriptor.session.metadata?.hostedParticipants).toBeUndefined();
+    });
+
+    it('submits a descriptor that already reflects request overrides (tags/requester/runLabel)', async () => {
+      controlPlaneClient.submitRun.mockResolvedValue(controlPlaneResponse);
+
+      await service.run({
+        scenarioRef: 'fraud/high-value-new-device@1.0.0',
+        inputs: {},
+        tags: ['extra-tag'],
+        requester: { actorId: 'qa-bot', actorType: 'service' },
+        runLabel: 'nightly-2026-04-15'
+      });
+
+      const submittedDescriptor = controlPlaneClient.submitRun.mock.calls[0][0];
+      expect(submittedDescriptor.execution?.tags).toEqual(expect.arrayContaining(['extra-tag']));
+      expect(submittedDescriptor.execution?.requester).toEqual({ actorId: 'qa-bot', actorType: 'service' });
+      expect(submittedDescriptor.session.metadata?.runLabel).toBe('nightly-2026-04-15');
     });
   });
 

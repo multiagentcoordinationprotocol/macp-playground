@@ -15,6 +15,7 @@ import { LaunchSupervisor } from './launch-supervisor';
 import { ManifestValidator } from './manifest-validator';
 import { AgentManifest, AgentFramework } from './contracts/manifest.types';
 import { BootstrapPayload } from './contracts/bootstrap.types';
+import { allocateCancelCallback } from './cancel-callback';
 
 @Injectable()
 export class ProcessExampleAgentHostProvider implements ExampleAgentHostProvider, OnModuleDestroy {
@@ -175,7 +176,15 @@ export class ProcessExampleAgentHostProvider implements ExampleAgentHostProvider
     const runtimeAddress = this.config.runtimeAddress || '';
     const isInitiator = context.initiator?.participantId === binding.participantId;
     const bearerToken = await this.resolveAgentToken(binding, definition, context, isInitiator);
-    const cancelCb = this.allocateCancelCallback(binding.participantId, context.runId);
+    const cancelCb = allocateCancelCallback(
+      {
+        host: this.config.cancelCallbackHost,
+        portBase: this.config.cancelCallbackPortBase,
+        path: this.config.cancelCallbackPath
+      },
+      binding.participantId,
+      context.runId
+    );
 
     const initiatorData = context.initiator;
 
@@ -272,33 +281,6 @@ export class ProcessExampleAgentHostProvider implements ExampleAgentHostProvider
     };
     const override = this.config.authScopeOverrides[sender];
     return this.authMinter.mergeScopes(base, override);
-  }
-
-  private allocateCancelCallback(participantId: string, runId: string): BootstrapPayload['cancel_callback'] {
-    const host = this.config.cancelCallbackHost;
-    if (!host) return undefined;
-    const base = this.config.cancelCallbackPortBase;
-    if (!base || base <= 0) {
-      // No port base configured; agents will listen on an ephemeral port and
-      // POST the port back to the control-plane via a future registration
-      // call. For now we just record host+path and let the agent bind :0.
-      return { host, port: 0, path: this.config.cancelCallbackPath };
-    }
-    const port = this.nextCancelCallbackPort(base, runId, participantId);
-    return { host, port, path: this.config.cancelCallbackPath };
-  }
-
-  private nextCancelCallbackPort(base: number, runId: string, participantId: string): number {
-    // Deterministic offset so the same (runId, participantId) always lands on
-    // the same port within a process — avoids collisions when launching the
-    // same scenario repeatedly against a single host.
-    let hash = 0;
-    const material = `${runId}:${participantId}`;
-    for (let i = 0; i < material.length; i += 1) {
-      hash = (hash * 31 + material.charCodeAt(i)) | 0;
-    }
-    const offset = Math.abs(hash) % 1024;
-    return base + offset;
   }
 
   private resolveLauncher(definition: ExampleAgentDefinition): 'node' | 'python' {
