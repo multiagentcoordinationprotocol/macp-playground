@@ -279,7 +279,11 @@ pre-allocated `sessionId` (UUID v4).
 
 ### `POST /examples/run`
 
-Full showcase flow: compile scenario, bootstrap example agents, and optionally submit to the control plane.
+Full showcase flow: compile scenario, bootstrap example agents, and (if `MACP_CONTROL_PLANE_URL` is
+configured) submit the run to the control plane (CP-1). See
+[`docs/direct-agent-auth.md` § "CP-1 run registration"](direct-agent-auth.md#cp-1-run-registration)
+for the full design — there is no per-request toggle for this; it's controlled entirely by
+whether `MACP_CONTROL_PLANE_URL` is set at deploy time.
 
 **Request body:**
 ```json
@@ -289,7 +293,6 @@ Full showcase flow: compile scenario, bootstrap example agents, and optionally s
   "mode": "sandbox",
   "inputs": { "transactionAmount": 3200 },
   "bootstrapAgents": true,
-  "submitToControlPlane": false,
   "tags": ["ui-launch", "experiment-42"],
   "requester": { "actorId": "user@example.com", "actorType": "user" },
   "runLabel": "My test run"
@@ -302,8 +305,7 @@ Full showcase flow: compile scenario, bootstrap example agents, and optionally s
 | `templateId` | string | _(none)_ | Template slug to apply |
 | `mode` | `live` \| `sandbox` | `sandbox` | Execution mode |
 | `inputs` | object | _(required)_ | User inputs, validated against scenario JSON Schema |
-| `bootstrapAgents` | boolean | `true` | Resolve and bootstrap example agent bindings |
-| `submitToControlPlane` | boolean | `true` | Submit the compiled request to the control plane |
+| `bootstrapAgents` | boolean | `AUTO_BOOTSTRAP_EXAMPLE_AGENTS` | Resolve and bootstrap example agent bindings. When `false`, agents are not bootstrapped and the control plane is not called either. |
 | `tags` | string[] | _(none)_ | Additional tags merged into `execution.tags` |
 | `requester` | object | _(none)_ | Override `execution.requester` with `{ actorId, actorType }` |
 | `runLabel` | string | _(none)_ | Human-readable label stored in `session.metadata.runLabel` |
@@ -311,7 +313,7 @@ Full showcase flow: compile scenario, bootstrap example agents, and optionally s
 **Response:** `201`
 ```json
 {
-  "compiled": { "executionRequest": { ... }, "display": { ... }, "participantBindings": [ ... ] },
+  "compiled": { "runDescriptor": { ... }, "executionRequest": { ... }, "display": { ... }, "participantBindings": [ ... ] },
   "hostedAgents": [
     {
       "participantId": "fraud-agent",
@@ -327,15 +329,21 @@ Full showcase flow: compile scenario, bootstrap example agents, and optionally s
       "status": "resolved"
     }
   ],
-  "controlPlane": {
-    "baseUrl": "http://localhost:3001",
-    "validated": false,
-    "submitted": false
+  "sessionId": "7c7a8f4d-0d4d-4f2b-8a9e-1f3a6b2e0c11",
+  "controlPlaneRun": {
+    "runId": "run_01hx...",
+    "sessionId": "7c7a8f4d-0d4d-4f2b-8a9e-1f3a6b2e0c11",
+    "status": "queued",
+    "traceId": "trace_01hx..."
   }
 }
 ```
 
-When `submitToControlPlane` is `true` and the control plane is available, the response includes `runId`, `status`, and `traceId` in the `controlPlane` object, and hosted agents have `status: "bootstrapped"`.
+`controlPlaneRun` is present **only** when `MACP_CONTROL_PLANE_URL` is configured and the
+`POST /runs` submission succeeded; it is absent (not `null` — the key is simply omitted) when
+the control plane is unconfigured, unreachable, times out, or rejects the request. Agent
+bootstrap and the HTTP response's own success are entirely unaffected either way — a
+control-plane failure never turns a successful run into an error response.
 
 **Errors:** `400 VALIDATION_ERROR | INVALID_SCENARIO_REF | AGENT_NOT_FOUND`, `502 AUTH_MINT_FAILED`, `500 INVALID_CONFIG`
 

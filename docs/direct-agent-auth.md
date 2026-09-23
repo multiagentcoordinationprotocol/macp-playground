@@ -86,6 +86,10 @@ UI → macp-playground: POST /examples/run
   ↓
 macp-playground compiles scenario → { runDescriptor, executionRequest, initiator, sessionId }
   ↓
+ControlPlaneRunClient.submitRun(runDescriptor)  ← POST /runs to control-plane (CP-1)
+  best-effort, non-fatal, runs concurrently with agent bootstrap below —
+  see "CP-1 run registration" for details
+  ↓
 For each participant:
   ├─ AuthTokenMinterService.mintToken(sender, scopes)  ← POST /tokens to auth-service
   └─ LaunchSupervisor.writeBootstrapFile(payload)      ← /tmp/*.json, auth_token baked in
@@ -164,6 +168,42 @@ There is no refresh callback in either SDK.
 - Failures log `auth_mint_failure sender=<id> reason=...` at warn level; the request surfaces `AUTH_MINT_FAILED` (HTTP 502).
 - The token body is never logged (enforced by `auth-token-minter.service.spec.ts`).
 
+## CP-1 run registration
+
+`ExampleRunService.run()` submits the compiled `runDescriptor` to the
+control-plane's `POST /runs` (CP-1) via `ControlPlaneRunClient`
+(`src/launch/control-plane-run-client.service.ts`). This is **orthogonal to,
+not a replacement for**, the direct-agent-auth gRPC path above: the initiator
+agent opens the runtime session itself regardless of whether this call
+succeeds. Its only purpose is to let the control-plane's observer stream
+learn about the run so UI Console projections have something to subscribe
+to from the moment the run starts, not after the first envelope arrives.
+
+Configuration:
+
+- `MACP_CONTROL_PLANE_URL` — control-plane base URL. **Unset by default** —
+  when empty, submission is skipped entirely (`control_plane_submit_skipped`
+  logged at `warn`) and `/examples/run` behaves exactly as it does with no
+  control-plane at all.
+- `MACP_CONTROL_PLANE_TIMEOUT_MS` (default `5000`) — bounds the `fetch` call
+  via `AbortSignal.timeout()`.
+- `MACP_CONTROL_PLANE_API_KEY` — sent as `Authorization: Bearer <key>` when
+  set. Needed because control-plane's global `AuthGuard` requires an
+  `Authorization` header on every route, including `POST /runs`, even when
+  the control-plane's own `AUTH_API_KEYS` is unset (only the token-validity
+  check is skipped in that case).
+
+**Best-effort and non-fatal by design:** every failure mode (unset URL,
+network error, timeout, non-2xx response, malformed JSON, a response missing
+`runId`) returns `null` from `submitRun()` and logs a `warn` —
+`ControlPlaneRunClient` never throws. In `ExampleRunService.run()`, the
+submission races agent bootstrap via `Promise.allSettled`; only
+`hosting.attach()`'s own rejection can fail the request. A control-plane
+outage or misconfiguration never blocks or delays the demo — it just means
+the run is invisible to the observer stream, which the `warn` log makes
+diagnosable. On success, the response is surfaced as `controlPlaneRun` on
+the `/examples/run` result (see [`docs/api-reference.md`](api-reference.md)).
+
 ## Policy registration (startup)
 
 When `REGISTER_POLICIES_ON_LAUNCH=true` (the default) and `MACP_RUNTIME_ADDRESS`
@@ -235,11 +275,11 @@ This plan has matching tasks in:
 
 - `macp-sdk-python` — PY-1..6 (secure default, `expected_sender`, publish). **Done upstream** (v0.2.0 features present in-tree).
 - `macp-sdk-typescript` — TS-1..5 (secure default, `expectedSender`). **Done upstream** (v0.2.0 features present in-tree). v0.3.0 added the auto-binding cancel-callback listener so the worker no longer hand-rolls one.
-- `macp-control-plane` — CP-1..15 (RunDescriptor contract, sessionId response, delete forged-envelope paths, observer-mode). **Not yet landed** — the macp-playground continues to POST `executionRequest` until CP-1 ships.
+- `macp-control-plane` — CP-1..15 (RunDescriptor contract, sessionId response, delete forged-envelope paths, observer-mode). **CP-1 landed** (2026-09-22) — the macp-playground now submits `runDescriptor` to `POST /runs` via `ControlPlaneRunClient`; see "CP-1 run registration" above.
 - `macp-ui-console` — UI-1..5 (remove operator inject panel). Independent of macp-playground.
 
 ## Forward-compat notes
 
 - The `executionRequest.session.metadata.sessionId` carries the compiled `sessionId`, so observer tooling that reads metadata already sees the same id as the agents.
 - `runDescriptor` is produced on every compile and returned in the `CompileLaunchResult`. Callers consume it directly — there is no legacy `executionRequest` shape.
-- The macp-playground no longer ships a control-plane HTTP client (`src/control-plane/control-plane.client.ts` was removed during the direct-agent-auth rollout). If a future revision re-introduces a control-plane submit step, add a new module under `src/control-plane/` rather than reviving the old shape.
+- The write-side control-plane HTTP client removed during the direct-agent-auth rollout (`src/control-plane/control-plane.client.ts`) has **not** been revived — CP-1's `ControlPlaneRunClient` (`src/launch/control-plane-run-client.service.ts`) is a new, narrower client that only calls the observer-safe `POST /runs`, and deliberately does **not** live under `src/control-plane/`: `src/observer-invariant.spec.ts` forbids any import path containing that segment, guarding against exactly this kind of write-path client creeping back in.
