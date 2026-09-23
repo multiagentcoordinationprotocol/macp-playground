@@ -131,10 +131,33 @@ export class AppConfigService implements OnModuleInit {
    */
   readonly authScopeOverrides: Record<string, MacpScopes> = readScopesMap('MACP_AUTH_SCOPES_JSON');
 
+  /**
+   * Control-plane base URL for CP-1 run submission (`POST /runs`). Optional —
+   * unlike `authServiceUrl`, an unset value does not fail startup. The
+   * control-plane is a scenario-agnostic observer only (direct-agent-auth);
+   * sessions run end-to-end via direct agent→runtime gRPC regardless of
+   * whether the control-plane ever learns about them, so submission is
+   * best-effort and non-fatal on failure (see `ControlPlaneRunClient`).
+   */
+  readonly controlPlaneUrl: string = process.env.MACP_CONTROL_PLANE_URL ?? '';
+  readonly controlPlaneTimeoutMs: number = readNumber('MACP_CONTROL_PLANE_TIMEOUT_MS', 5000);
+  /**
+   * Optional bearer sent as `Authorization: Bearer <token>` on every CP-1
+   * request. The control-plane's global `AuthGuard` requires an
+   * `Authorization` header on every request even when its own `AUTH_API_KEYS`
+   * is unset (it only skips the token *validity* check in that case) — so a
+   * control-plane deployment with `AUTH_API_KEYS` set (e.g.
+   * `docker-compose.fullstack.yml`'s `demo-key`) requires this to be
+   * configured to match, or every submission will fail with 401 and be
+   * treated as a non-fatal warn.
+   */
+  readonly controlPlaneApiKey: string = process.env.MACP_CONTROL_PLANE_API_KEY ?? '';
+
   onModuleInit(): void {
     this.logger.log(`packs directory: ${this.packsDir}`);
     this.logger.log(`cache TTL: ${this.registryCacheTtlMs}ms`);
     this.logger.log(`runtime: ${this.runtimeAddress || '(unset)'}`);
+    this.logger.log(`control-plane: ${this.controlPlaneUrl || '(unset — CP-1 submission disabled)'}`);
     if (!this.runtimeTls && !this.runtimeAllowInsecure) {
       this.logger.warn(
         'MACP_RUNTIME_TLS=false without MACP_RUNTIME_ALLOW_INSECURE=true: agents will refuse to open the channel (RFC-MACP-0006 §3).'

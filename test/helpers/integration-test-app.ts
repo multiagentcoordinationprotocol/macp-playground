@@ -35,6 +35,9 @@ export async function createIntegrationTestApp(
     authScopeOverrides: Record<string, Record<string, unknown>>;
     /** Set to false to use the real AuthTokenMinterService (and hit authServiceUrl over HTTP). */
     stubAuthMinter: boolean;
+    controlPlaneUrl: string;
+    controlPlaneTimeoutMs: number;
+    controlPlaneApiKey: string;
   }>
 ): Promise<IntegrationTestContext> {
   const controlPlaneMode = (process.env.INTEGRATION_CONTROL_PLANE ?? 'mock') as ControlPlaneMode;
@@ -90,7 +93,10 @@ export async function createIntegrationTestApp(
       authServiceUrl: overrides?.authServiceUrl ?? 'http://auth-stub:3200',
       authServiceTimeoutMs: overrides?.authServiceTimeoutMs ?? 5000,
       authTokenTtlSeconds: overrides?.authTokenTtlSeconds ?? 3600,
-      authScopeOverrides: overrides?.authScopeOverrides ?? {}
+      authScopeOverrides: overrides?.authScopeOverrides ?? {},
+      controlPlaneUrl: overrides?.controlPlaneUrl ?? mockControlPlane?.baseUrl ?? '',
+      controlPlaneTimeoutMs: overrides?.controlPlaneTimeoutMs ?? 5000,
+      controlPlaneApiKey: overrides?.controlPlaneApiKey ?? ''
     })
     .compile();
 

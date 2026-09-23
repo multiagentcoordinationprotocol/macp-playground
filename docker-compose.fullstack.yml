@@ -154,6 +154,10 @@ services:
       # AUTH-2: every spawn mints a JWT via the auth-service.
       MACP_AUTH_SERVICE_URL: http://auth-service:3200
       MACP_AUTH_TOKEN_TTL_SECONDS: '3600'
+      # CP-1: best-effort POST /runs registration — same demo-key AUTH_API_KEYS
+      # enforces on the control-plane's own AuthGuard above.
+      MACP_CONTROL_PLANE_URL: http://macp-control-plane:3001
+      MACP_CONTROL_PLANE_API_KEY: demo-key
       # Real LLM key — agents (LangGraph/LangChain/CrewAI) call OpenAI.
       OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY in the environment}
     depends_on:
@@ -161,3 +165,5 @@ services:
         condition: service_started
       auth-service:
         condition: service_healthy
+      macp-control-plane:
+        condition: service_started

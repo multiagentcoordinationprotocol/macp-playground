@@ -1,7 +1,7 @@
 {
   "policy_id": "policy.lending.conservative",
   "mode": "macp.mode.decision.v1",
-  "schema_version": 1,
+  "schema_version": 3,
   "description": "Lending: supermajority with compliance veto and mandatory evaluations before voting",
   "rules": {
     "voting": {
@@ -18,9 +18,9 @@
       "required_before_voting": true
     },
     "commitment": {
-      "authority": "initiator_only",
+      "authority": "designated_role",
       "require_vote_quorum": true,
-      "designated_roles": ["risk", "compliance"]
+      "designated_roles": ["risk-agent", "compliance-agent"]
     }
   }
 }

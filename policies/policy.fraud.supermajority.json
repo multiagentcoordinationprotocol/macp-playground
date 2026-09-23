@@ -1,7 +1,7 @@
 {
   "policy_id": "policy.fraud.supermajority",
   "mode": "macp.mode.decision.v1",
-  "schema_version": 1,
+  "schema_version": 3,
   "description": "Fraud review: two-thirds supermajority with 2-voter quorum, no veto",
   "rules": {
     "voting": {

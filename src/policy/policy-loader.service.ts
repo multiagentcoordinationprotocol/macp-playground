@@ -68,10 +68,10 @@ export class PolicyLoaderService {
 
     if (commitment) {
       if (
-        commitment.authority === 'designated_roles' &&
+        commitment.authority === 'designated_role' &&
         (!commitment.designated_roles || commitment.designated_roles.length === 0)
       ) {
-        errors.push('designated_roles authority requires a non-empty designated_roles array');
+        errors.push('designated_role authority requires a non-empty designated_roles array');
       }
     }
 
