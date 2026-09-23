@@ -1,7 +1,7 @@
 {
   "policy_id": "policy.fraud.unanimous",
   "mode": "macp.mode.decision.v1",
-  "schema_version": 1,
+  "schema_version": 3,
   "description": "Fraud review: unanimous approval required — all participants must vote approve",
   "rules": {
     "voting": {

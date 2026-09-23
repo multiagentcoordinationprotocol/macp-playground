@@ -25,7 +25,7 @@ jest.mock('macp-sdk-typescript', () => ({
 const claimsPolicy: PolicyDefinition = {
   policy_id: 'policy.claims.majority',
   mode: 'macp.mode.decision.v1',
-  schema_version: 1,
+  schema_version: 3,
   description: 'Claims majority',
   rules: {
     voting: { algorithm: 'majority', threshold: 0.5, quorum: { type: 'count', value: 2 } },
@@ -149,7 +149,7 @@ describe('PolicyRegistrarService', () => {
       mode: 'macp.mode.decision.v1',
       description: 'Claims majority',
       rules: JSON.stringify(claimsPolicy.rules),
-      schemaVersion: 1
+      schemaVersion: 3
     });
   });
 
