@@ -57,7 +57,7 @@ export class PolicyRegistrarService implements OnApplicationBootstrap {
       auth: Auth.bearer(token, { expectedSender: REGISTRAR_SENDER })
     });
 
-    const counts = { registered: 0, already: 0, managedByRuntime: 0, missing: 0, failed: 0 };
+    const counts = { registered: 0, already: 0, managedByRuntime: 0, missing: 0, failed: 0, schemaDrift: 0 };
     const missingPolicyIds: string[] = [];
     // Once the runtime reports a read-only registry (v0.5.0 with MACP_POLICIES_DIR
     // set), mutating RPCs are pointless — switch to verify-only for the remainder.
@@ -78,6 +78,7 @@ export class PolicyRegistrarService implements OnApplicationBootstrap {
         } else if (this.isAlreadyRegisteredError(result.error)) {
           counts.already += 1;
           this.logger.log(`policy_already_registered policy_id=${policy.policy_id}`);
+          await this.checkSchemaDrift(client, policy, counts);
         } else if (this.isReadOnlyRegistryError(result.error)) {
           readOnlyRegistry = true;
           this.logger.log(
@@ -119,8 +120,16 @@ export class PolicyRegistrarService implements OnApplicationBootstrap {
     this.logger.log(
       `policy_registration_complete registered=${counts.registered} already=${counts.already} ` +
         `managed_by_runtime=${counts.managedByRuntime} missing=${counts.missing} failed=${counts.failed} ` +
-        `read_only=${readOnlyRegistry} total=${policies.length}`
+        `schema_drift=${counts.schemaDrift} read_only=${readOnlyRegistry} total=${policies.length}`
     );
+    if (counts.schemaDrift > 0) {
+      this.logger.error(
+        `${counts.schemaDrift} ${counts.schemaDrift === 1 ? 'policy' : 'policies'} on the runtime ` +
+          `${counts.schemaDrift === 1 ? 'has' : 'have'} a stale schema_version — see policy_schema_drift lines above. ` +
+          `A runtime that already holds an older descriptor under the same policy_id silently keeps it; ` +
+          `restart the runtime (or clear its registry) to pick up the local schema_version.`
+      );
+    }
   }
 
   /**
@@ -131,7 +140,7 @@ export class PolicyRegistrarService implements OnApplicationBootstrap {
   private async verifyManagedPolicy(
     client: MacpClient,
     policy: PolicyDefinition,
-    counts: { managedByRuntime: number; missing: number; failed: number },
+    counts: { managedByRuntime: number; missing: number; failed: number; schemaDrift: number },
     missingPolicyIds: string[]
   ): Promise<void> {
     try {
@@ -139,6 +148,7 @@ export class PolicyRegistrarService implements OnApplicationBootstrap {
       if (descriptor?.policyId === policy.policy_id) {
         counts.managedByRuntime += 1;
         this.logger.log(`policy_managed_by_runtime policy_id=${policy.policy_id}`);
+        this.compareSchemaVersion(policy, descriptor.schemaVersion, counts);
       } else {
         counts.missing += 1;
         missingPolicyIds.push(policy.policy_id);
@@ -151,6 +161,46 @@ export class PolicyRegistrarService implements OnApplicationBootstrap {
         `policy_missing_in_runtime policy_id=${policy.policy_id} ${err instanceof Error ? err.message : String(err)}`
       );
     }
+  }
+
+  /**
+   * A `registerPolicy` call that comes back "already registered" tells us the
+   * runtime has *a* descriptor under this policy_id — not that it's the one
+   * on disk right now. Follow up with a read and compare schema_version so a
+   * stale runtime copy (left over from a prior deploy, a rolling restart
+   * that never re-registered, or a runtime that was never restarted after
+   * this repo's own schema_version bump) is surfaced instead of counted as
+   * a clean match.
+   */
+  private async checkSchemaDrift(
+    client: MacpClient,
+    policy: PolicyDefinition,
+    counts: { schemaDrift: number }
+  ): Promise<void> {
+    try {
+      const descriptor = await client.getPolicy(policy.policy_id);
+      this.compareSchemaVersion(policy, descriptor.schemaVersion, counts);
+    } catch (err) {
+      this.logger.warn(
+        `policy_schema_drift_check_failed policy_id=${policy.policy_id} ` +
+          `could not read back the runtime's copy to compare schema_version: ` +
+          `${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
+  private compareSchemaVersion(
+    policy: PolicyDefinition,
+    runtimeSchemaVersion: number,
+    counts: { schemaDrift: number }
+  ): void {
+    if (runtimeSchemaVersion === policy.schema_version) return;
+    counts.schemaDrift += 1;
+    this.logger.error(
+      `policy_schema_drift policy_id=${policy.policy_id} runtime_schema_version=${runtimeSchemaVersion} ` +
+        `local_schema_version=${policy.schema_version} — the runtime is still evaluating commitments under this ` +
+        `policy_id against schema_version ${runtimeSchemaVersion}, not the ${policy.schema_version} on disk`
+    );
   }
 
   private toDescriptor(policy: PolicyDefinition): SdkPolicyDescriptor {

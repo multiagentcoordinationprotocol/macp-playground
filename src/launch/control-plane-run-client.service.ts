@@ -2,6 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { AppConfigService } from '../config/app-config.service';
 import { RunDescriptor, RunDescriptorResponse } from '../contracts/run-descriptor';
 
+/** Strips newlines from untrusted upstream text before it reaches a log line — otherwise a crafted response body can forge additional log records. */
+function sanitizeForLog(text: string): string {
+  return text.replace(/[\r\n]+/g, ' ');
+}
+
 /**
  * Submits a `RunDescriptor` to the control-plane's CP-1 contract
  * (`POST /runs`) for scenario-agnostic observer registration. This is purely
@@ -31,6 +36,10 @@ export class ControlPlaneRunClient {
 
     const url = `${base.replace(/\/+$/, '')}/runs`;
     const sessionId = descriptor.session.sessionId;
+    // `session.sessionId` is optional on the wire contract — the control-plane
+    // allocates and echoes one back when the request omits it. Every log line
+    // below needs a printable value regardless, so this is what they render.
+    const requestSessionIdLabel = sessionId ?? '(unset)';
 
     let response: Response;
     try {
@@ -38,18 +47,25 @@ export class ControlPlaneRunClient {
         method: 'POST',
         headers: this.buildHeaders(),
         body: JSON.stringify(descriptor),
-        signal: AbortSignal.timeout(this.config.controlPlaneTimeoutMs)
+        signal: AbortSignal.timeout(this.config.controlPlaneTimeoutMs),
+        // A same-origin redirect would silently downgrade this POST to a GET
+        // (301/302/303) and could carry the Authorization header to a host
+        // this config never named. There is no legitimate reason for the
+        // control-plane to redirect a POST /runs — treat one as a failure
+        // rather than following it.
+        redirect: 'error'
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : 'unknown network error';
-      this.logger.warn(`control_plane_submit_failed sessionId=${sessionId} reason=network:${reason}`);
+      this.logger.warn(`control_plane_submit_failed sessionId=${requestSessionIdLabel} reason=network:${reason}`);
       return null;
     }
 
     if (!response.ok) {
       const bodyText = await response.text().catch(() => '');
       this.logger.warn(
-        `control_plane_submit_failed sessionId=${sessionId} reason=http_${response.status} body=${bodyText.slice(0, 200)}`
+        `control_plane_submit_failed sessionId=${requestSessionIdLabel} reason=http_${response.status} ` +
+          `body=${sanitizeForLog(bodyText.slice(0, 200))}`
       );
       return null;
     }
@@ -59,17 +75,44 @@ export class ControlPlaneRunClient {
       parsed = (await response.json()) as RunDescriptorResponse;
     } catch (err) {
       const reason = err instanceof Error ? err.message : 'invalid JSON';
-      this.logger.warn(`control_plane_submit_failed sessionId=${sessionId} reason=parse:${reason}`);
+      this.logger.warn(`control_plane_submit_failed sessionId=${requestSessionIdLabel} reason=parse:${reason}`);
       return null;
     }
 
     if (!parsed || typeof parsed.runId !== 'string' || !parsed.runId) {
-      this.logger.warn(`control_plane_submit_failed sessionId=${sessionId} reason=missing_runId`);
+      this.logger.warn(`control_plane_submit_failed sessionId=${requestSessionIdLabel} reason=missing_runId`);
+      return null;
+    }
+
+    if (typeof parsed.status !== 'string' || !parsed.status) {
+      this.logger.warn(`control_plane_submit_failed sessionId=${requestSessionIdLabel} reason=missing_status`);
+      return null;
+    }
+
+    if (typeof parsed.sessionId !== 'string' || !parsed.sessionId) {
+      this.logger.warn(`control_plane_submit_failed sessionId=${requestSessionIdLabel} reason=missing_sessionId`);
+      return null;
+    }
+
+    // The control-plane can legitimately return a pre-existing run on an
+    // idempotency-key hit (run-manager.service.ts), which carries that run's
+    // original sessionId rather than this request's. No shipped scenario
+    // sets `execution.idempotencyKey` today, so this is latent rather than
+    // reachable — but a caller trusting `controlPlaneRun.sessionId` deserves
+    // a hard signal rather than a silently mismatched pair. Only checked
+    // when the request itself set a sessionId: `RunDescriptor.session.sessionId`
+    // is documented as optional (the control-plane allocates and echoes one
+    // back when omitted), so there is nothing valid to compare against then.
+    if (sessionId !== undefined && parsed.sessionId !== sessionId) {
+      this.logger.warn(
+        `control_plane_submit_failed sessionId=${requestSessionIdLabel} reason=session_id_mismatch ` +
+          `returned=${sanitizeForLog(parsed.sessionId)}`
+      );
       return null;
     }
 
     this.logger.log(
-      `control_plane_submit_success sessionId=${sessionId} runId=${parsed.runId} status=${parsed.status}`
+      `control_plane_submit_success sessionId=${parsed.sessionId} runId=${parsed.runId} status=${parsed.status}`
     );
     return parsed;
   }

@@ -33,6 +33,17 @@ const FORBIDDEN_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
     reason: 'Control-plane write routes deleted in CP-5..7; they return 410 Gone.'
   },
   {
+    // NOTE: this matches a literal `/control-plane/` *directory* segment in
+    // an import path — it is regex-avoidance-dependent, not intent-dependent.
+    // It does not forbid all control-plane communication: CP-1 run
+    // registration (`src/launch/control-plane-run-client.service.ts`) is a
+    // deliberate, allowed exception under RFC-MACP-0004 §4 — the
+    // control-plane may act as a scenario-agnostic *observer*, and this
+    // client only ever POSTs a read-back-friendly run descriptor for
+    // registration, never an envelope on an agent's behalf. It doesn't match
+    // this pattern only because the file isn't under a `control-plane/`
+    // directory; don't take that as proof the invariant is enforced against
+    // an equivalent client placed in such a directory instead.
     pattern: /from\s+['"][^'"]*\/control-plane\/[^'"]*['"]/,
     reason:
       'The local control-plane HTTP client was removed with direct-agent-auth; agents talk to the runtime over gRPC.'

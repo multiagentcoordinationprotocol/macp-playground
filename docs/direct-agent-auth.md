@@ -198,11 +198,40 @@ network error, timeout, non-2xx response, malformed JSON, a response missing
 `runId`) returns `null` from `submitRun()` and logs a `warn` —
 `ControlPlaneRunClient` never throws. In `ExampleRunService.run()`, the
 submission races agent bootstrap via `Promise.allSettled`; only
-`hosting.attach()`'s own rejection can fail the request. A control-plane
-outage or misconfiguration never blocks or delays the demo — it just means
+`hosting.attach()`'s own rejection can fail the request, so a control-plane
+outage or misconfiguration never blocks or **fails** the demo — it just means
 the run is invisible to the observer stream, which the `warn` log makes
-diagnosable. On success, the response is surfaced as `controlPlaneRun` on
-the `/examples/run` result (see [`docs/api-reference.md`](api-reference.md)).
+diagnosable. It **can still delay** the HTTP response, though: `allSettled`
+awaits both branches, so a slow or unreachable control-plane holds the
+`/examples/run` response open for up to `MACP_CONTROL_PLANE_TIMEOUT_MS` even
+once agent bootstrap has already finished. There is no circuit breaker — a
+sustained control-plane outage means every launch pays the full timeout,
+not just the first one. On success, the response is surfaced as
+`controlPlaneRun` on the `/examples/run` result (see
+[`docs/api-reference.md`](api-reference.md)).
+
+**Known gap: control-plane-initiated cancel is not wired.** The submitted
+`runDescriptor.session.metadata` carries neither `cancelCallback` nor
+`cancellationDelegated` (both reserved keys per `RunDescriptor`'s docstring),
+so a UI-initiated cancel through the control-plane's `POST /runs/:id/cancel`
+fails closed with "run has no cancelCallback in metadata and no policy
+delegation". Wiring **Option A** (`cancelCallback: {url, bearer}`) is not
+actually possible today: the standalone agent-side cancel-callback HTTP
+server this repo used to run was removed in a prior "SDK Parity Changes"
+commit, and neither `macp-sdk-typescript` nor anything else in this repo
+binds a listener on the `cancel_callback.host:port` the bootstrap payload
+still computes — that value is emitted but nothing receives it, in every
+deployment shape this repo ships, independent of CP-1. Sending it to the
+control-plane would advertise a URL that always refuses the connection.
+**Option B** (`cancellationDelegated: true`, control-plane calls
+`cancelSession` directly with its own runtime identity) would work, but
+widens the control-plane's authority over a running session beyond
+"observer" — a deliberate trust-boundary decision this repo hasn't made,
+not a wiring gap to close casually. Until one of those changes, the
+existing in-band mechanism — the coordinator itself calling
+`participant.client.cancelSession()` when the runtime denies a commit (see
+"Runtime/agent boundary" above) — is the only way a session in this repo
+reaches a terminal `CANCELLED` state early.
 
 ## Policy registration (startup)
 

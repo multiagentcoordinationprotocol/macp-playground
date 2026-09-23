@@ -123,7 +123,7 @@ emits `SessionStart` + the first mode-specific envelope (e.g. `Proposal`).
 | Agent Catalog | `src/example-agents/example-agent-catalog.service.ts` | Hard-coded agent definitions (4 agents) |
 | Python Agent SDK | upstream `macp_sdk` (PyPI) | Python workers call `macp_sdk.agent.from_bootstrap()` directly — no local worker SDK in this repo. Handlers receive the same `ctx.actions` surface (`evaluate`, `vote`, `commit`, etc.) as the TS SDK. |
 | Node Worker Runtime | `src/example-agents/runtime/` | In-tree TS modules for the custom (Node) Risk Agent: `bootstrap-loader.ts`, `log-agent.ts`, `policy-strategy.ts`, and `risk-decider.worker.ts`. Runtime IO uses `macp-sdk-typescript` directly. Cancel-callback delivery is owned by the SDK (`fromBootstrap()` auto-binds the listener). |
-| Policy Strategy | `src/example-agents/runtime/policy-strategy.ts` | Policy-aware decision logic for the coordinator (quorum, voting, veto, confidence filtering, designated-role commitment authority) |
+| Policy Strategy | `src/example-agents/runtime/policy-strategy.ts` | Policy-aware decision logic for the coordinator (quorum, voting, veto, confidence filtering). Commitment authority is enforced solely by the runtime — see the note below. |
 | Policy Registrar | `src/policy/policy-registrar.service.ts` | Mints an admin JWT (`can_manage_mode_registry`) at service bootstrap and registers every non-default policy with the runtime via `MacpClient.registerPolicy()`. |
 | Auth Minter | `src/auth/auth-token-minter.service.ts` | On-demand JWT minting against the standalone auth-service (`POST /tokens`). Single-flight cache keyed by `(sender, scope-hash)`. See `docs/direct-agent-auth.md`. |
 
@@ -162,7 +162,17 @@ policy-driven:
 - **Voting**: Approval rate vs threshold, with veto-blocking objections when `vetoEnabled` (configurable `vetoThreshold` per RFC-MACP-0012)
 - **Confidence filtering**: Evaluations below `minimumConfidence` are disqualified from voting
 - **Decision**: Maps signals to `approve` / `step_up` / `decline`
-- **Commitment**: Includes `designatedRoles` for commitment authority tracking
+
+The coordinator commits unconditionally once it decides — it does **not**
+enforce `rules.commitment.authority`/`designated_roles`, despite
+`PolicyHints.designatedRoles` existing on the type. Commitment authority is
+enforced solely by the **runtime**, against `policy.rules.commitment` on the
+registered descriptor; a commit the runtime disallows comes back
+`POLICY_DENIED` regardless of what the local strategy decided. See
+`docs/policy-authoring.md`'s designated-role callouts for the full picture,
+including why `policyHints.designatedRoles` and
+`rules.commitment.designated_roles` are unrelated fields despite the similar
+name.
 
 ## Policy Flow
 
