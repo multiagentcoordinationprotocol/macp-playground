@@ -1,29 +1,42 @@
-# Full-stack v0.5.0 real-LLM end-to-end harness.
+# Full-stack v0.8.0 real-LLM end-to-end harness.
 #
-# Brings up the complete MACP stack on the runtime v0.5.0 / macp-proto 0.1.6+
-# release so the example agents (LangGraph / LangChain / CrewAI / custom)
-# actually call a real LLM and drive a decision session on the runtime,
-# observed by the control-plane.
+# Brings up the complete MACP stack on the runtime v0.8.0 release so the example
+# agents (LangGraph / LangChain / CrewAI / custom) actually call a real LLM and
+# drive a decision session on the runtime, observed by the control-plane.
 #
 # Auth: JWT throughout. auth-service mints RS256 JWTs; the runtime validates
 # them via the auth-service JWKS (issuer/audience must match). macp-playground
 # mints a per-agent JWT on every spawn; the control-plane mints an observer JWT.
 #
-# v0.5.0 note: the runtime image no longer bakes `MACP_ALLOW_INSECURE=1` and
-# refuses to start without auth unless it is set explicitly — we set it below
-# (required for plaintext gRPC regardless of JWT auth). The runtime also exposes
-# a Prometheus text endpoint on `MACP_METRICS_ADDR` (:9464 here).
+# v0.5.0 note (still current at v0.8.0): the runtime image does not bake
+# `MACP_ALLOW_INSECURE=1` and refuses to start without auth unless it is set
+# explicitly — we set it below (required for plaintext gRPC regardless of JWT
+# auth). The runtime also exposes a Prometheus text endpoint on
+# `MACP_METRICS_ADDR` (:9464 here).
+#
+# Runtime image tag: no `:0.8.0` tag exists on GHCR for
+# ghcr.io/multiagentcoordinationprotocol/macp-runtime — upstream's release-plz
+# tags releases `macp-runtime-v0.8.0`, which doesn't match the publish
+# workflow's `v*` trigger glob, so no versioned image has published since that
+# tagging scheme changed (filed upstream as
+# multiagentcoordinationprotocol/macp-runtime#184; full diagnosis at
+# ../macp-control-plane/plans/cross-repo/macp-runtime-docker-tag-trigger.md,
+# discovered during that repo's own runtime-v0.8.0 absorption). Workaround,
+# shared with that repo: pin the release commit's immutable SHA tag instead —
+# see the `runtime` service below. Re-derive the SHA at the next absorption if
+# this one is ever garbage-collected from GHCR, or once the upstream fix lands
+# and a real `:0.8.0` tag becomes available.
 #
 # Prereqs:
 #   runtime      — pulled from ghcr (no local Rust build needed)
-#   control-plane / auth-service / playground — built locally at :0.5.0
+#   control-plane / auth-service / playground — built locally at :0.8.0
 #     (rebuild macp-playground from this branch to pick up the absorption changes)
 #
 # Run:  OPENAI_API_KEY=sk-... docker compose -f docker-compose.fullstack.yml up
 
 services:
   auth-service:
-    image: macp-auth-service:0.5.0
+    image: macp-auth-service:0.8.0
     ports:
       - '3200:3200'
     environment:
@@ -39,14 +52,17 @@ services:
       retries: 10
 
   runtime:
-    image: ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.5.0
+    # `f97fd15` is the SHA tag for the macp-runtime-v0.8.0 release commit
+    # (f97fd15a9e0…, verified multi-arch linux/amd64,linux/arm64). No `:0.8.0`
+    # tag exists on GHCR — see the header comment above for why.
+    image: ghcr.io/multiagentcoordinationprotocol/macp-runtime:f97fd15
     ports:
       - '50051:50051'
-      # Prometheus text endpoint (v0.5.0): curl http://localhost:9464/metrics
+      # Prometheus text endpoint (v0.5.0+): curl http://localhost:9464/metrics
       - '9464:9464'
     environment:
       MACP_BIND_ADDR: 0.0.0.0:50051
-      # v0.5.0 no longer bakes this into the image — required for plaintext gRPC.
+      # v0.5.0+ does not bake this into the image — required for plaintext gRPC.
       MACP_ALLOW_INSECURE: '1'
       MACP_MEMORY_ONLY: '1'
       # Prometheus text endpoint (mode counters etc.) — observability demo surface.
@@ -56,7 +72,7 @@ services:
       MACP_AUTH_AUDIENCE: macp-runtime
       MACP_AUTH_JWKS_URL: http://auth-service:3200/.well-known/jwks.json
       MACP_AUTH_JWKS_TTL_SECS: '60'
-      # --- Read-only policy registry variant (v0.5.0) -------------------------
+      # --- Read-only policy registry variant (v0.5.0+) -------------------------
       # Uncomment to have the runtime own the policy registry from disk instead
       # of accepting RegisterPolicy RPCs. Pair with REGISTER_POLICIES_ON_LAUNCH
       # 'false' on macp-playground below; the registrar then verifies presence
@@ -84,7 +100,7 @@ services:
       retries: 10
 
   migrate:
-    image: macp-control-plane:0.5.0
+    image: macp-control-plane:0.8.0
     command: ['node', 'dist/db/migrate.js']
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/macp_control_plane
@@ -93,7 +109,7 @@ services:
         condition: service_healthy
 
   macp-control-plane:
-    image: macp-control-plane:0.5.0
+    image: macp-control-plane:0.8.0
     ports:
       - '3001:3001'
     environment:
@@ -118,7 +134,7 @@ services:
         condition: service_healthy
 
   macp-playground:
-    image: macp-playground:0.5.0
+    image: macp-playground:0.8.0
     ports:
       - '3000:3000'
     environment:
