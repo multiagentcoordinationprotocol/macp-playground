@@ -11,7 +11,7 @@
     },
     "objection_handling": {
       "critical_severity_vetoes": false,
-      "veto_threshold": 1
+      "veto_threshold": 0
     },
     "evaluation": {
       "minimum_confidence": 0.0,

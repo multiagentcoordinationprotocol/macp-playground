@@ -35,14 +35,14 @@ semantics — it just registers whatever descriptors live on disk.
 
 These are the policies shipped in `policies/` for the demo scenarios:
 
-| Policy ID | Algorithm | Threshold | Quorum | Veto | Min Confidence |
-|-----------|-----------|-----------|--------|------|----------------|
-| `policy.default` | none | - | 0 | No | 0.0 |
-| `policy.fraud.majority-veto` | majority | 50% | 2 count | Yes (1) | 0.0 |
-| `policy.fraud.supermajority` | supermajority | 67% | 2 count | No | 0.0 |
-| `policy.fraud.unanimous` | unanimous | - | 100% | Yes (1) | 0.7 |
-| `policy.lending.conservative` | supermajority | 67% | 3 count | Yes (1) | 0.6 |
-| `policy.claims.majority` | majority | 50% | 2 count | No | 0.0 |
+| Policy ID | Algorithm | Threshold | Quorum | Veto | Min Confidence | Commit Authority |
+|-----------|-----------|-----------|--------|------|----------------|-------------------|
+| `policy.default` | none | - | 0 | No | 0.0 | initiator_only |
+| `policy.fraud.majority-veto` | majority | 50% | 2 count | Yes (1) | 0.0 | initiator_only |
+| `policy.fraud.supermajority` | supermajority | 67% | 2 count | No | 0.0 | initiator_only |
+| `policy.fraud.unanimous` | unanimous | - | 100% | Yes (1) | 0.7 | initiator_only |
+| `policy.lending.conservative` | supermajority | 67% | 3 count | Yes (1) | 0.6 | **designated_role** (`risk-agent`, `compliance-agent`) |
+| `policy.claims.majority` | majority | 50% | 2 count | No | 0.0 | initiator_only |
 
 ## Connecting Policies to Scenarios
 
@@ -79,7 +79,18 @@ governance against the registered `policy_id` directly.
 | `vetoEnabled` | `rules.objection_handling.critical_severity_vetoes` |
 | `vetoThreshold` | `rules.objection_handling.veto_threshold` |
 | `minimumConfidence` | `rules.evaluation.minimum_confidence` |
-| `designatedRoles` | `rules.commitment.designated_roles` |
+| `designatedRoles` | **not derived from `rules.commitment.designated_roles`** — see the callout below; the two fields hold different value kinds and are unrelated in practice |
+
+> **`policyHints.designatedRoles` is informational only — nothing in this repo
+> reads it.** `PolicyStrategy` (`src/example-agents/runtime/policy-strategy.ts`)
+> declares the field on its `PolicyHints` type but never consumes it; the
+> coordinator commits unconditionally and lets the runtime arbitrate authority.
+> Commitment authority is enforced solely by the **runtime**, against
+> `rules.commitment.designated_roles` (participant identities, see the callout
+> under "Creating a Custom Policy" below) — a completely separate field with a
+> different value domain (role labels vs. participant IDs) that happens to
+> share a similar name. Setting `policyHints.designatedRoles` in a scenario
+> template has zero effect on what the runtime will actually authorize.
 
 ## How Policies Are Loaded
 
@@ -111,9 +122,20 @@ Flow (`src/policy/policy-registrar.service.ts`):
    (For the wire contract of `RegisterPolicy`, see
    [`macp-runtime/docs/API.md`](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#registerpolicy).)
 4. Errors whose message contains `"already"` are treated as idempotent
-   success (the runtime signals a duplicate).
+   success (the runtime signals a duplicate) — but "already registered"
+   only means the runtime holds *a* descriptor under that `policy_id`, not
+   that it's the one on disk right now. The registrar follows up with a
+   `getPolicy` read and compares `schema_version`; a mismatch (a runtime
+   that was never restarted after a local policy edit, a rolling deploy
+   that skipped re-registration) is logged at ERROR as `policy_schema_drift`
+   rather than silently counted as a clean match. The same comparison runs
+   on the read-only verification path (step 5 below).
 5. On completion, logs
-   `policy_registration_complete registered=<n> already=<n> managed_by_runtime=<n> missing=<n> failed=<n> read_only=<bool> total=<n>`.
+   `policy_registration_complete registered=<n> already=<n> managed_by_runtime=<n> missing=<n> failed=<n> schema_drift=<n> read_only=<bool> total=<n>`.
+   A nonzero `schema_drift` gets its own summary ERROR line naming the
+   affected policies (see the per-policy `policy_schema_drift` lines above it)
+   and the fix (restart the runtime, or clear its registry, to pick up the
+   local `schema_version`).
 
 **Read-only registry (v0.5.0).** A runtime started with `MACP_POLICIES_DIR`
 owns its registry from disk and rejects `RegisterPolicy` with
@@ -185,11 +207,26 @@ fields (`objection_handling.critical_objection_action`,
 `commitment.allow_decline_over_approval`); the runtime accepts `1`, `2`, and `3`.
 
 > **`schema_version: 3` is the current recommended value for new policies.**
-> Versions `1`/`2` run on the runtime's legacy fail-open evaluator arm, kept only
-> for back-compat with already-registered policies; `3` is the fixed fail-closed
-> evaluator (RFC-MACP-0012 §4.1/§8), which denies rather than silently allows an
-> empty-tally outcome under quorum. All six bundled `policies/*.json` files use
-> `schema_version: 3`. There is no other shape difference between the versions —
+> Only **one** evaluator branch is actually gated on `schema_version` — the
+> empty-tally check (an algorithm other than `none` produces zero decisive
+> votes): under `schema_version >= 3` it always denies; under `1`/`2` it denies
+> only when `rules.commitment.require_vote_quorum` is `true`, and silently
+> allows otherwise (the fail-open case RFC-MACP-0012 §4.1/§8 closes). Every
+> other evaluator rule (weighted electorate, negative/zero weighted totals,
+> `threshold: 0.0` at admission) is version-independent by design and applies
+> to every `schema_version` equally — bumping the number does not change
+> those. All six bundled `policies/*.json` files declare `schema_version: 3`,
+> but each of them already set `require_vote_quorum: true` (or uses
+> `algorithm: "none"`, which is exempt from the empty-tally check entirely),
+> so none of them was ever reachable by the fail-open arm — the bump is
+> forward-hygiene for whatever policy gets authored next, not a behavior
+> change for the shipped six. `policy.default` is the one exception worth
+> knowing about: it is excluded from registration
+> (`PolicyLoaderService.listRegistrablePolicies()`) and the runtime rejects
+> registering under the reserved `policy.default` id outright — the file's
+> `schema_version: 3` is never actually sent anywhere; the runtime always
+> evaluates the default-governance case against its own built-in default
+> policy. There is no other shape difference between the schema versions —
 > bump the number, nothing else, when migrating an older policy.
 
 ## Creating a Custom Policy

@@ -29,16 +29,33 @@ export class ExampleRunService {
 
     const sessionId = compiled.sessionId || randomUUID();
     compiled.sessionId = sessionId;
+    compiled.runDescriptor.session.sessionId = sessionId;
 
     const session = compiled.runDescriptor.session;
+
+    // Snapshot the descriptor before firing anything: `hosting.attach` below
+    // mutates `compiled.runDescriptor.session.metadata` in place (adding
+    // `hostedParticipants`) once agent processes are resolved. Submitting the
+    // *same* object those two branches were racing on worked only by
+    // accident of evaluation order (submitRun's fetch() args, including
+    // JSON.stringify, are built synchronously before attach's first await)
+    // — a fragile invariant nothing enforced. A deep clone removes the
+    // shared mutable state entirely, so the two branches are safe under any
+    // future reordering or added `await` in either one.
+    const submissionDescriptor = structuredClone(compiled.runDescriptor);
 
     // CP-1 submission runs concurrently with agent bootstrap — it is a
     // best-effort observer registration, never a gate on the actual session,
     // which opens over direct agent→runtime gRPC regardless of this result.
     // Promise.allSettled (not Promise.all): even an unexpected throw from the
     // control-plane client must not block or fail agent bootstrap.
+    // Note this bounds, but does not eliminate, added latency: allSettled
+    // still awaits both branches, so a slow/unreachable control-plane holds
+    // up this HTTP response for up to controlPlaneTimeoutMs even though
+    // bootstrap itself already finished. Bootstrap correctness is unaffected
+    // either way — only how long the caller waits for the response.
     const [controlPlaneSettled, hostedAgentsSettled] = await Promise.allSettled([
-      this.controlPlaneClient.submitRun(compiled.runDescriptor),
+      this.controlPlaneClient.submitRun(submissionDescriptor),
       this.hosting.attach(compiled, {
         runId: sessionId,
         sessionId,

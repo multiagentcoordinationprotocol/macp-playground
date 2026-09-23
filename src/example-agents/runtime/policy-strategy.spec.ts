@@ -383,20 +383,28 @@ describe('PolicyStrategy', () => {
   });
 
   describe('RFC-MACP-0012: designatedRoles', () => {
-    it('passes designatedRoles through PolicyHints', () => {
-      const hints: PolicyHints = {
-        type: 'majority',
-        threshold: 0.5,
-        designatedRoles: ['risk', 'compliance']
-      };
-      const strategy = createPolicyStrategy(hints);
-      // designatedRoles is informational for commitment authority — strategy still works
+    // `designated_roles`/`commitment.authority` are enforced authoritatively
+    // by macp-runtime's evaluator (see policies/policy.lending.conservative.json
+    // + macp-runtime's check_commitment_authority). This local coordinator is
+    // an advisory mirror only — it never reads PolicyHints.designatedRoles —
+    // so the correct test isn't "it doesn't error when passed", it's "it has
+    // zero effect on the outcome". If a future change starts consuming this
+    // field, this test should start failing and get rewritten to prove the
+    // new behavior instead of silently continuing to pass.
+    it('has no effect on the decision — the field is informational only, not enforced locally', () => {
       const signals = signalMap(
         signal('a', 'Evaluation', { recommendation: 'APPROVE' }),
         signal('b', 'Evaluation', { recommendation: 'APPROVE' })
       );
-      const decision = strategy.decide(signals, {});
-      expect(decision.action).toBe('approve');
+
+      const withoutDesignatedRoles = createPolicyStrategy({ type: 'majority', threshold: 0.5 }).decide(signals, {});
+      const withDesignatedRoles = createPolicyStrategy({
+        type: 'majority',
+        threshold: 0.5,
+        designatedRoles: ['risk-agent', 'compliance-agent']
+      }).decide(signals, {});
+
+      expect(withDesignatedRoles).toEqual(withoutDesignatedRoles);
     });
   });
 
@@ -490,6 +498,37 @@ describe('PolicyStrategy', () => {
       // 1 critical objection < vetoThreshold(2), so no veto
       // c is below minimumConfidence, so only b and d qualify as approvals
       // 2 qualified approvals out of 4 total = 50% >= 50% threshold
+      expect(decision.action).toBe('approve');
+    });
+  });
+
+  describe('fail-closed on an empty tally (RFC-MACP-0012 §4.1, mirrors macp-runtime schema_version >= 3)', () => {
+    // A zero-participant/zero-signal tally must never resolve to 'approve' —
+    // that would be exactly the fail-open shape schema_version 3 exists to
+    // close off in the runtime evaluator. 'none' is the one algorithm the
+    // runtime's own evaluator explicitly exempts from the empty-tally check
+    // (it has no ballot to be empty), so it's excluded from this table.
+    it.each(['majority', 'supermajority', 'unanimous'] as const)(
+      'type=%s: decide() never returns approve on a completely empty signals map',
+      (type) => {
+        const strategy = createPolicyStrategy({ type, threshold: 0.67 });
+        const decision = strategy.decide(new Map(), {});
+        expect(decision.action).not.toBe('approve');
+      }
+    );
+
+    it('unanimous with zero signals steps up rather than vacuously approving (0 === 0)', () => {
+      // Regression test: `approvals === total` with total=0 previously read
+      // as "all zero participants approved" and returned action: 'approve'.
+      const strategy = createPolicyStrategy({ type: 'unanimous' });
+      const decision = strategy.decide(new Map(), {});
+      expect(decision.action).toBe('step_up');
+      expect(decision.reason).toContain('no signals received');
+    });
+
+    it("none policy: zero signals is a legitimate pass-through approve (matches the runtime evaluator's exemption for algorithm=none)", () => {
+      const strategy = createPolicyStrategy({ type: 'none' });
+      const decision = strategy.decide(new Map(), {});
       expect(decision.action).toBe('approve');
     });
   });

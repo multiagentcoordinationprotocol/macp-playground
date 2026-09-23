@@ -252,4 +252,86 @@ describe('risk-decider.worker (SDK Participant)', () => {
     // ...and because it finalized the session, the cancel fallback does NOT fire.
     expect(mockCancelSession).not.toHaveBeenCalled();
   });
+
+  describe('wait-all deadline with insufficient signals (RFC-MACP-0012 §4.1 empty-tally, fail-closed)', () => {
+    const originalTimeoutEnv = process.env.RISK_DECIDER_WAIT_ALL_TIMEOUT_MS;
+
+    beforeEach(() => {
+      // Short deadline so the test can advance past it without waiting on the
+      // real 60s default.
+      process.env.RISK_DECIDER_WAIT_ALL_TIMEOUT_MS = '1000';
+    });
+
+    afterEach(() => {
+      if (originalTimeoutEnv === undefined) {
+        delete process.env.RISK_DECIDER_WAIT_ALL_TIMEOUT_MS;
+      } else {
+        process.env.RISK_DECIDER_WAIT_ALL_TIMEOUT_MS = originalTimeoutEnv;
+      }
+    });
+
+    it('cancels the session when the deadline is reached with zero specialist signals ever received', async () => {
+      mockLoadBootstrap.mockReturnValue(defaultBootstrap());
+      await runWorker();
+      await jest.advanceTimersByTimeAsync(10);
+
+      // Only the Proposal arrives (arms the deadline). No Evaluation/Objection
+      // ever fires, so no HandlerContext (pendingHandlerCtx) is ever captured.
+      const onProposal = getHandler('Proposal');
+      onProposal({ proposalId: 'p1', sender: 'fraud-agent', payload: {} });
+
+      await jest.advanceTimersByTimeAsync(1100);
+
+      expect(mockActions.commit).not.toHaveBeenCalled();
+      expect(mockCancelSession).toHaveBeenCalledTimes(1);
+      expect(mockCancelSession).toHaveBeenCalledWith(
+        'sess-uuid-v4',
+        expect.stringContaining('no specialist signals received'),
+        expect.objectContaining({ auth: mockAuth, cancelledBy: 'risk-coordinator' })
+      );
+    });
+
+    it('cancels the session when the deadline is reached with partial signals that never reach quorum', async () => {
+      mockLoadBootstrap.mockReturnValue(
+        defaultBootstrap({
+          // majority policy over 2 specialists needs at least 1 signal to
+          // meet quorum (Math.max(1, ceil(2*0.5))=1) — use a policy hint that
+          // still won't be met by zero-of-two once one specialist never
+          // responds: `unanimous` requires signals.size >= totalExpected.
+          metadata: {
+            run_id: 'run-1',
+            trace_id: 'trace-1',
+            scenario_ref: 'fraud/high-value-new-device@1.0.0',
+            role: 'coordinator',
+            framework: 'custom',
+            agent_ref: 'risk-agent',
+            policy_hints: { type: 'unanimous', minimumConfidence: 0 },
+            session_context: { transactionAmount: 5000 }
+          }
+        })
+      );
+      await runWorker();
+      await jest.advanceTimersByTimeAsync(10);
+
+      const ctx = { actions: { vote: jest.fn().mockResolvedValue(undefined), commit: mockActions.commit } };
+      const onProposal = getHandler('Proposal');
+      const onEvaluation = getHandler('Evaluation');
+      onProposal({ proposalId: 'p1', sender: 'fraud-agent', payload: {} });
+      // Only ONE of the two expected specialists ever responds.
+      onEvaluation(
+        { proposalId: 'p1', sender: 'fraud-agent', payload: { recommendation: 'APPROVE', confidence: 1 } },
+        ctx
+      );
+
+      await jest.advanceTimersByTimeAsync(1100);
+
+      expect(mockActions.commit).not.toHaveBeenCalled();
+      expect(mockCancelSession).toHaveBeenCalledTimes(1);
+      expect(mockCancelSession).toHaveBeenCalledWith(
+        'sess-uuid-v4',
+        expect.stringContaining('insufficient signals to evaluate policy'),
+        expect.objectContaining({ auth: mockAuth, cancelledBy: 'risk-coordinator' })
+      );
+    });
+  });
 });
