@@ -11,7 +11,7 @@ describe('PolicyLoaderService', () => {
   const defaultPolicy: PolicyDefinition = {
     policy_id: 'policy.default',
     mode: '*',
-    schema_version: 1,
+    schema_version: 3,
     description: 'Default policy',
     rules: {
       voting: { algorithm: 'none' },
@@ -24,7 +24,7 @@ describe('PolicyLoaderService', () => {
   const fraudPolicy: PolicyDefinition = {
     policy_id: 'policy.fraud.unanimous',
     mode: 'macp.mode.decision.v1',
-    schema_version: 1,
+    schema_version: 3,
     description: 'Unanimous',
     rules: {
       voting: { algorithm: 'unanimous' },
@@ -166,36 +166,36 @@ describe('PolicyLoaderService', () => {
       expect(errors).toContain('weighted algorithm requires a non-empty weights map');
     });
 
-    it('returns error when designated_roles authority has empty roles', () => {
+    it('returns error when designated_role authority has empty roles', () => {
       const policy: PolicyDefinition = {
         ...fraudPolicy,
         rules: {
           ...fraudPolicy.rules,
           commitment: {
-            authority: 'designated_roles',
+            authority: 'designated_role',
             require_vote_quorum: true,
             designated_roles: []
           }
         }
       };
       const errors = service.validatePolicy(policy);
-      expect(errors).toContain('designated_roles authority requires a non-empty designated_roles array');
+      expect(errors).toContain('designated_role authority requires a non-empty designated_roles array');
     });
 
-    it('accepts designated_roles authority with non-empty roles', () => {
+    it('accepts designated_role authority with non-empty roles', () => {
       const policy: PolicyDefinition = {
         ...fraudPolicy,
         rules: {
           ...fraudPolicy.rules,
           commitment: {
-            authority: 'designated_roles',
+            authority: 'designated_role',
             require_vote_quorum: true,
             designated_roles: ['risk-lead']
           }
         }
       };
       const errors = service.validatePolicy(policy);
-      expect(errors).not.toContain('designated_roles authority requires a non-empty designated_roles array');
+      expect(errors).not.toContain('designated_role authority requires a non-empty designated_roles array');
     });
 
     it('returns error when minimum_confidence > 1', () => {

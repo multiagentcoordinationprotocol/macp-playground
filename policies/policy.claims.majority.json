@@ -1,7 +1,7 @@
 {
   "policy_id": "policy.claims.majority",
   "mode": "macp.mode.decision.v1",
-  "schema_version": 1,
+  "schema_version": 3,
   "description": "Claims review: simple majority with 2-voter quorum",
   "rules": {
     "voting": {

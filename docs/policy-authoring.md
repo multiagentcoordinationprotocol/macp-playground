@@ -18,7 +18,7 @@ Every policy under `policies/*.json` follows the runtime's
 {
   "policy_id": "policy.<domain>.<variant>",
   "mode": "macp.mode.decision.v1",
-  "schema_version": 1,
+  "schema_version": 3,
   "description": "Human-readable description of this policy",
   "rules": { "voting": { ... }, "objection_handling": { ... },
              "evaluation": { ... }, "commitment": { ... } }
@@ -179,11 +179,18 @@ so `POLICY_DENIED` → `CANCELLED` is **not** the universal result:
   `objection_handling.critical_objection_action: "hold"`.
 
 The reject-majority decline-resolves behavior applies to **any** bound Decision
-policy with a real voting algorithm, independent of `schema_version` — so the
-bundled `schema_version: 1` policies get it automatically. `schema_version: 2` is
+policy with a real voting algorithm, independent of `schema_version`. `schema_version: 2` is
 the spec-canonical version that additionally carries the optional decline-gating
 fields (`objection_handling.critical_objection_action`,
-`commitment.allow_decline_over_approval`); the runtime accepts both `1` and `2`.
+`commitment.allow_decline_over_approval`); the runtime accepts `1`, `2`, and `3`.
+
+> **`schema_version: 3` is the current recommended value for new policies.**
+> Versions `1`/`2` run on the runtime's legacy fail-open evaluator arm, kept only
+> for back-compat with already-registered policies; `3` is the fixed fail-closed
+> evaluator (RFC-MACP-0012 §4.1/§8), which denies rather than silently allows an
+> empty-tally outcome under quorum. All six bundled `policies/*.json` files use
+> `schema_version: 3`. There is no other shape difference between the versions —
+> bump the number, nothing else, when migrating an older policy.
 
 ## Creating a Custom Policy
 
@@ -194,7 +201,7 @@ fields (`objection_handling.critical_objection_action`,
 {
   "policy_id": "policy.myteam.custom",
   "mode": "macp.mode.decision.v1",
-  "schema_version": 1,
+  "schema_version": 3,
   "description": "Custom policy for my team's use case",
   "rules": {
     "voting": {
@@ -205,9 +212,9 @@ fields (`objection_handling.critical_objection_action`,
     "objection_handling": { "critical_severity_vetoes": true, "veto_threshold": 1 },
     "evaluation": { "minimum_confidence": 0.6, "required_before_voting": true },
     "commitment": {
-      "authority": "designated_roles",
+      "authority": "designated_role",
       "require_vote_quorum": true,
-      "designated_roles": ["risk", "compliance"]
+      "designated_roles": ["risk-agent", "compliance-agent"]
     }
   }
 }
@@ -215,6 +222,20 @@ fields (`objection_handling.critical_objection_action`,
 
 Refer to [`macp-runtime/docs/policy.md`](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md)
 for the legal values of each rule field.
+
+> **`rules.commitment.designated_roles` holds sender identities, not role
+> labels**, despite the name. The runtime's `check_commitment_authority`
+> (`macp-modes/src/mode/util.rs`) matches each entry against the raw envelope
+> `sender` — which in this repo is the scenario roster's participant `id`
+> (e.g. `risk-agent`, `compliance-agent` from `packs/_shared/participants/`),
+> **not** its cosmetic `role:` field (`risk`, `compliance`). A policy that puts
+> role labels here instead of participant IDs will silently deny every commit
+> from every participant once `authority: "designated_role"` is set — the
+> runtime rejects it at commitment time (`POLICY_DENIED`), not at registration,
+> so nothing catches the mistake until a real run. This is unrelated to the
+> `policyHints.designatedRoles` field below, which *is* free-form and
+> role-labeled — it's advisory-only, consumed by the local `PolicyStrategy`,
+> and never sent to or enforced by the runtime.
 
 > **Quorum scale (v0.5.0).** A `percentage`-type quorum value is on a **0–100
 > scale** — the runtime evaluator divides the observed voter ratio by 100 before
