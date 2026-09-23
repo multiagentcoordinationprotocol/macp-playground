@@ -43,6 +43,14 @@ export async function createIntegrationTestApp(
   const controlPlaneMode = (process.env.INTEGRATION_CONTROL_PLANE ?? 'mock') as ControlPlaneMode;
   const fixturesPacksDir = path.resolve(__dirname, '../fixtures/packs');
 
+  // `docker`/`remote` mode targets the real stack brought up by
+  // `docker-compose.fullstack.yml` (see CLAUDE.md's Docker section) — same
+  // ports/credentials that compose file wires between its services. These are
+  // only the *defaults*; an explicit override always wins, so specs that need
+  // a scoped mock (e.g. auth-minting.integration.spec.ts's in-process
+  // MockAuthService) are unaffected.
+  const isRealStack = controlPlaneMode !== 'mock';
+
   // The MockControlPlane is retained for observer-style assertions only; the
   // playground no longer issues any control-plane HTTP calls (RFC-MACP-0004 §4).
   let mockControlPlane: MockControlPlane | null = null;
@@ -53,7 +61,12 @@ export async function createIntegrationTestApp(
 
   let builder = Test.createTestingModule({ imports: [AppModule] });
 
-  if (overrides?.stubAuthMinter !== false) {
+  // Default to stubbing the minter only in `mock` mode; `docker`/`remote`
+  // mode defaults to the real AuthTokenMinterService hitting a live
+  // auth-service, which is the whole point of those modes. An explicit
+  // `stubAuthMinter` override always takes precedence either way.
+  const shouldStubAuthMinter = overrides?.stubAuthMinter ?? controlPlaneMode === 'mock';
+  if (shouldStubAuthMinter) {
     builder = builder.overrideProvider(AuthTokenMinterService).useValue({
       mintToken: async (sender: string) => ({
         token: `jwt-${sender}-integration`,
@@ -84,19 +97,26 @@ export async function createIntegrationTestApp(
       exampleAgentPythonPath: 'python3',
       exampleAgentNodePath: process.execPath,
       authApiKeys: overrides?.authApiKeys ?? [],
-      runtimeAddress: overrides?.runtimeAddress ?? '',
-      runtimeTls: overrides?.runtimeTls ?? true,
-      runtimeAllowInsecure: overrides?.runtimeAllowInsecure ?? false,
+      runtimeAddress:
+        overrides?.runtimeAddress ?? (isRealStack ? (process.env.MACP_RUNTIME_ADDRESS ?? 'localhost:50051') : ''),
+      runtimeTls: overrides?.runtimeTls ?? (isRealStack ? false : true),
+      runtimeAllowInsecure: overrides?.runtimeAllowInsecure ?? (isRealStack ? true : false),
       cancelCallbackHost: '127.0.0.1',
       cancelCallbackPortBase: 0,
       cancelCallbackPath: '/agent/cancel',
-      authServiceUrl: overrides?.authServiceUrl ?? 'http://auth-stub:3200',
+      authServiceUrl:
+        overrides?.authServiceUrl ??
+        (isRealStack ? (process.env.MACP_AUTH_SERVICE_URL ?? 'http://localhost:3200') : 'http://auth-stub:3200'),
       authServiceTimeoutMs: overrides?.authServiceTimeoutMs ?? 5000,
       authTokenTtlSeconds: overrides?.authTokenTtlSeconds ?? 3600,
       authScopeOverrides: overrides?.authScopeOverrides ?? {},
-      controlPlaneUrl: overrides?.controlPlaneUrl ?? mockControlPlane?.baseUrl ?? '',
+      controlPlaneUrl:
+        overrides?.controlPlaneUrl ??
+        mockControlPlane?.baseUrl ??
+        (isRealStack ? (process.env.MACP_CONTROL_PLANE_URL ?? 'http://localhost:3001') : ''),
       controlPlaneTimeoutMs: overrides?.controlPlaneTimeoutMs ?? 5000,
-      controlPlaneApiKey: overrides?.controlPlaneApiKey ?? ''
+      controlPlaneApiKey:
+        overrides?.controlPlaneApiKey ?? (isRealStack ? (process.env.MACP_CONTROL_PLANE_API_KEY ?? 'demo-key') : '')
     })
     .compile();
 
