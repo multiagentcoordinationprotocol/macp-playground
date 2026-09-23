@@ -116,7 +116,13 @@ export class AppConfigService implements OnModuleInit {
    * `POST /tokens` (RFC-MACP-0004 §5). See plans/auth-2-jwt-integration.md.
    */
   readonly authServiceUrl: string = process.env.MACP_AUTH_SERVICE_URL ?? '';
-  readonly authServiceTimeoutMs: number = readNumber('MACP_AUTH_SERVICE_TIMEOUT_MS', 5000);
+  /**
+   * Validated the same way as `controlPlaneTimeoutMs` below — `AbortSignal.timeout()`
+   * throws a `RangeError` on an invalid value, which here is worse than a misleading
+   * log line: `AuthTokenMinterService.requestToken` treats that throw as a network
+   * failure and re-raises `AUTH_MINT_FAILED` (502), failing every single agent spawn.
+   */
+  readonly authServiceTimeoutMs: number = this.readValidatedTimeoutMs('MACP_AUTH_SERVICE_TIMEOUT_MS', 5000);
   /**
    * TTL in seconds requested from the auth-service for every mint. Must exceed
    * the agent process's gRPC stream lifetime — the SDKs bind auth once at
@@ -141,12 +147,13 @@ export class AppConfigService implements OnModuleInit {
    */
   readonly controlPlaneUrl: string = process.env.MACP_CONTROL_PLANE_URL ?? '';
   /**
-   * Unlike `readNumber`'s other callers, this is validated for positivity —
-   * `AbortSignal.timeout()` throws a `RangeError` on a negative or
-   * non-integer value, which `ControlPlaneRunClient` would otherwise report
-   * as a misleading `reason=network:...` on every single submission. Falls
-   * back to the 5000ms default (with a startup warning) rather than
-   * crashing boot, matching this field's non-fatal, best-effort design.
+   * Unlike `readNumber`'s other callers, this is validated — `AbortSignal.timeout()`
+   * throws a `RangeError` on a negative, non-integer, or too-large value (and
+   * aborts the request immediately, rather than throwing, on `0`), any of which
+   * `ControlPlaneRunClient` would otherwise report as a misleading
+   * `reason=network:...` on every single submission. Falls back to the 5000ms
+   * default (with a startup warning) rather than crashing boot, matching this
+   * field's non-fatal, best-effort design.
    */
   readonly controlPlaneTimeoutMs: number = this.readValidatedTimeoutMs('MACP_CONTROL_PLANE_TIMEOUT_MS', 5000);
   /**
@@ -177,10 +184,17 @@ export class AppConfigService implements OnModuleInit {
 
   private readValidatedTimeoutMs(name: string, defaultValue: number): number {
     const value = readNumber(name, defaultValue);
-    if (!Number.isInteger(value) || value <= 0) {
+    // AbortSignal.timeout()'s valid range is a non-negative integer up to
+    // 4294967295 (2^32-1, an unsigned 32-bit max) — verified empirically
+    // against Node's actual implementation, not assumed from setTimeout's
+    // (different, signed 2^31-1) ceiling. Outside that range it throws a
+    // RangeError rather than scheduling the abort.
+    const MAX_TIMEOUT_MS = 4_294_967_295;
+    if (!Number.isInteger(value) || value <= 0 || value > MAX_TIMEOUT_MS) {
       this.logger.warn(
-        `${name}=${process.env[name]} is not a positive integer — falling back to ${defaultValue}ms. ` +
-          `AbortSignal.timeout() throws on an invalid value, which would otherwise silently break every submission.`
+        `${name}=${process.env[name]} is not a positive integer <= ${MAX_TIMEOUT_MS} — falling back to ` +
+          `${defaultValue}ms. AbortSignal.timeout() throws or aborts immediately on an invalid value, which ` +
+          `would otherwise silently break every request.`
       );
       return defaultValue;
     }

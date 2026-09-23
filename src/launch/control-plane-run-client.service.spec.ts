@@ -246,6 +246,33 @@ describe('ControlPlaneRunClient', () => {
     warnSpy.mockRestore();
   });
 
+  it('returns null when the response is missing sessionId', async () => {
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    global.fetch = fetchOk({ runId: 'run-1', status: 'queued' });
+    const client = new ControlPlaneRunClient(stubConfig());
+
+    const result = await client.submitRun(buildDescriptor());
+
+    expect(result).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('reason=missing_sessionId'));
+    warnSpy.mockRestore();
+  });
+
+  it('accepts a server-allocated sessionId when the request omitted one, without a mismatch error', async () => {
+    // RunDescriptor.session.sessionId is documented as optional — the
+    // control-plane allocates a UUID v4 and echoes it back when the request
+    // doesn't set one. There is nothing to compare it against in that case,
+    // so the mismatch guard must not reject it.
+    const descriptor = buildDescriptor();
+    delete descriptor.session.sessionId;
+    global.fetch = fetchOk({ runId: 'run-1', sessionId: 'server-allocated-session-id', status: 'queued' });
+    const client = new ControlPlaneRunClient(stubConfig());
+
+    const result = await client.submitRun(descriptor);
+
+    expect(result).toEqual({ runId: 'run-1', sessionId: 'server-allocated-session-id', status: 'queued' });
+  });
+
   it('strips trailing slashes from controlPlaneUrl before appending /runs', async () => {
     const calls: FetchArgs[] = [];
     global.fetch = jest.fn().mockImplementation((url, init) => {

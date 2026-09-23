@@ -130,6 +130,44 @@ describe('ExampleRunService', () => {
     expect(result.sessionId).toBe(sessionId);
   });
 
+  it('falls back to a freshly-generated UUID and mirrors it into runDescriptor.session.sessionId when compiled.sessionId is falsy', async () => {
+    // Defense-in-depth: CompileLaunchResult.sessionId is typed as required
+    // and CompilerService always populates it today, so this path isn't
+    // reachable via the shipped compiler — but nothing in the type system
+    // stops a future CompilerService change (or a hand-built
+    // CompileLaunchResult in a test/tool) from violating that contract, and
+    // the `|| randomUUID()` fallback exists specifically to keep run()
+    // correct if it ever does. This pins that: (1) the fallback actually
+    // generates a fresh UUID rather than passing an empty string through,
+    // and (2) it's mirrored into runDescriptor.session.sessionId (the field
+    // that was fixed to also stay in sync in this hardening pass) —
+    // otherwise the CP-1 submission would carry an empty/undefined
+    // sessionId while every other caller sees the freshly-generated one.
+    compiler.compile.mockImplementation(async () => {
+      const c = buildCompiled();
+      c.sessionId = '';
+      c.runDescriptor.session.sessionId = '';
+      return c;
+    });
+    controlPlaneClient.submitRun.mockResolvedValue(null);
+
+    const result = await service.run({
+      scenarioRef: 'fraud/high-value-new-device@1.0.0',
+      inputs: {}
+    });
+
+    expect(result.sessionId).toBeDefined();
+    expect(result.sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    expect(result.compiled.runDescriptor.session.sessionId).toBe(result.sessionId);
+    expect(controlPlaneClient.submitRun).toHaveBeenCalledWith(
+      expect.objectContaining({ session: expect.objectContaining({ sessionId: result.sessionId }) })
+    );
+    expect(hosting.attach).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: result.sessionId }),
+      expect.objectContaining({ sessionId: result.sessionId })
+    );
+  });
+
   it('skips attach when bootstrapAgents is false', async () => {
     config = { autoBootstrapExampleAgents: false } as AppConfigService;
     service = new ExampleRunService(compiler, hosting, config, controlPlaneClient);
@@ -221,18 +259,31 @@ describe('ExampleRunService', () => {
       );
     });
 
-    it('submits an unmutated snapshot of the descriptor even though hosting.attach mutates session.metadata in place', async () => {
-      // Regression test for the race-condition fix in example-run.service.ts:
-      // hosting.attach mutates compiled.runDescriptor.session.metadata in
-      // place (adding hostedParticipants) once agents are resolved. Before
-      // the structuredClone fix, submitRun and attach raced on the *same*
-      // object, so a reordering could leak that mutation into the submitted
-      // descriptor (or vice versa). This pins that submitRun always receives
-      // a snapshot taken before attach runs, regardless of interleaving.
+    it('submits the resolve-stage snapshot even though hosting.attach mutates session.metadata again concurrently', async () => {
+      // Regression test for the race-condition fix in example-run.service.ts.
+      // In production (HostingService.applyHostedAgents), BOTH resolve() and
+      // attach() mutate compiled.runDescriptor.session.metadata in place —
+      // resolve() runs (and mutates) synchronously before the clone is taken;
+      // attach() then mutates the *same underlying object* again concurrently
+      // with submitRun(), racing on it. Before the structuredClone fix, that
+      // race could leak attach's later mutation into the submitted
+      // descriptor depending on interleaving. This pins that submitRun always
+      // receives the resolve-stage snapshot — never attach's later one —
+      // regardless of interleaving. (A prior version of this test mocked
+      // resolve() as a no-op and asserted metadata was simply undefined,
+      // which doesn't hold in production: resolve() always populates
+      // hostedParticipants before the clone is ever taken.)
+      hosting.resolve.mockImplementation(async (compiledArg) => {
+        compiledArg.runDescriptor.session.metadata = {
+          ...(compiledArg.runDescriptor.session.metadata ?? {}),
+          hostedParticipants: ['resolve-stage']
+        };
+        return resolvedAgents;
+      });
       hosting.attach.mockImplementation(async (compiledArg) => {
         compiledArg.runDescriptor.session.metadata = {
           ...(compiledArg.runDescriptor.session.metadata ?? {}),
-          hostedParticipants: ['risk-agent']
+          hostedParticipants: ['attach-stage']
         };
         return attachedAgents;
       });
@@ -241,7 +292,7 @@ describe('ExampleRunService', () => {
       await service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', inputs: {} });
 
       const submittedDescriptor = controlPlaneClient.submitRun.mock.calls[0][0];
-      expect(submittedDescriptor.session.metadata?.hostedParticipants).toBeUndefined();
+      expect(submittedDescriptor.session.metadata?.hostedParticipants).toEqual(['resolve-stage']);
     });
 
     it('submits a descriptor that already reflects request overrides (tags/requester/runLabel)', async () => {
