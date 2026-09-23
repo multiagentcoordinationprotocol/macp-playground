@@ -26,7 +26,14 @@ describe('AUTH-2 JWT minting (integration)', () => {
         authServiceUrl: authMock.baseUrl,
         authServiceTimeoutMs: 3000,
         authTokenTtlSeconds: 900,
-        autoBootstrapExampleAgents: false
+        autoBootstrapExampleAgents: false,
+        // Isolated minter test: keep PolicyRegistrarService's own bootstrap-time
+        // admin mint out of this scoped mock's request count (it registers
+        // policies whenever runtimeAddress is set — see policy-registrar.service.ts).
+        // In `docker`/`remote` mode runtimeAddress otherwise defaults to a real
+        // address (see integration-test-app.ts), which would add an extra
+        // "macp-playground" record before the assertions below run.
+        runtimeAddress: ''
       });
     });
 
