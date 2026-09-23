@@ -222,7 +222,7 @@ describe('PolicyLoaderService', () => {
       expect(errors).toContain('minimum_confidence must be between 0 and 1');
     });
 
-    it('returns error when veto_threshold < 1', () => {
+    it('returns error when veto_threshold < 1 and critical_severity_vetoes is true', () => {
       const policy: PolicyDefinition = {
         ...fraudPolicy,
         rules: {
@@ -231,7 +231,59 @@ describe('PolicyLoaderService', () => {
         }
       };
       const errors = service.validatePolicy(policy);
-      expect(errors).toContain('veto_threshold must be >= 1');
+      expect(errors).toContain('veto_threshold must be >= 1 when critical_severity_vetoes is true');
+    });
+
+    it('does not require veto_threshold >= 1 when critical_severity_vetoes is false', () => {
+      const policy: PolicyDefinition = {
+        ...fraudPolicy,
+        rules: {
+          ...fraudPolicy.rules,
+          objection_handling: { critical_severity_vetoes: false, veto_threshold: 0 }
+        }
+      };
+      const errors = service.validatePolicy(policy);
+      expect(errors).not.toEqual(expect.arrayContaining([expect.stringContaining('veto_threshold must be >= 1')]));
+    });
+
+    it('warns when veto_threshold is set but critical_severity_vetoes is false (dead config)', () => {
+      const policy: PolicyDefinition = {
+        ...fraudPolicy,
+        rules: {
+          ...fraudPolicy.rules,
+          objection_handling: { critical_severity_vetoes: false, veto_threshold: 1 }
+        }
+      };
+      const errors = service.validatePolicy(policy);
+      expect(errors).toContain(
+        'veto_threshold is set but critical_severity_vetoes is false — the threshold is never read'
+      );
+    });
+
+    it('does not warn when veto_threshold is 0 and critical_severity_vetoes is false', () => {
+      const policy: PolicyDefinition = {
+        ...fraudPolicy,
+        rules: {
+          ...fraudPolicy.rules,
+          objection_handling: { critical_severity_vetoes: false, veto_threshold: 0 }
+        }
+      };
+      const errors = service.validatePolicy(policy);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('returns error when schema_version exceeds the highest version the runtime supports', () => {
+      const policy: PolicyDefinition = { ...fraudPolicy, schema_version: 4 };
+      const errors = service.validatePolicy(policy);
+      expect(errors).toContain(
+        'schema_version 4 exceeds the highest version this evaluator supports (3); every commitment under this policy will be denied with "unsupported policy schema version"'
+      );
+    });
+
+    it('accepts schema_version 3 without an upper-bound error', () => {
+      const policy: PolicyDefinition = { ...fraudPolicy, schema_version: 3 };
+      const errors = service.validatePolicy(policy);
+      expect(errors).not.toEqual(expect.arrayContaining([expect.stringContaining('exceeds the highest version')]));
     });
 
     it('returns multiple errors for multiple violations', () => {

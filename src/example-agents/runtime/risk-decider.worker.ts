@@ -107,13 +107,28 @@ async function main(): Promise<void> {
       // commits with whatever signals we have so the session doesn't
       // hang until TTL expiry.
       waitTimer = setTimeout(() => {
-        if (!committed && pendingHandlerCtx) {
+        if (committed) return;
+        if (pendingHandlerCtx) {
           log('wait-all deadline reached — forcing commit', {
             received: signals.size,
             expected: recipients.length
           });
           void tryCommit(pendingHandlerCtx, true);
+          return;
         }
+        // No specialist ever produced a signal (no Evaluation/Objection
+        // arrived at all), so pendingHandlerCtx was never set and tryCommit
+        // has no HandlerContext to force through. There's nothing to vote or
+        // commit on — go straight to cancelling so the session doesn't hang
+        // until TTL EXPIRED.
+        committed = true;
+        log('wait-all deadline reached with zero signals received — cancelling session', {
+          received: 0,
+          expected: recipients.length
+        });
+        void cancelSessionSafely(
+          `wait-all deadline reached with no specialist signals received (expected ${recipients.length})`
+        );
       }, WAIT_ALL_TIMEOUT_MS);
       waitTimer.unref?.();
     }
@@ -166,6 +181,22 @@ async function main(): Promise<void> {
     void tryCommit(ctx);
   });
 
+  async function cancelSessionSafely(reason: string): Promise<void> {
+    const sessionId = bootstrap.session_id ?? '';
+    if (!sessionId) return;
+    try {
+      await participant.client.cancelSession(sessionId, reason, {
+        auth: participant.auth,
+        cancelledBy: participantId
+      });
+      log('session cancelled', { sessionId, reason });
+    } catch (cancelError) {
+      log('session cancel failed', {
+        error: cancelError instanceof Error ? cancelError.message : String(cancelError)
+      });
+    }
+  }
+
   async function tryCommit(ctx: HandlerContext, force = false): Promise<void> {
     if (committed || !proposalId) return;
     // Wait for ALL declared specialists before committing, unless the
@@ -173,7 +204,30 @@ async function main(): Promise<void> {
     // remains as a defensive lower-bound (avoids committing with zero
     // signals on the deadline path).
     if (!force && signals.size < recipients.length) return;
-    if (!strategy.isQuorumMet(signals, recipients.length)) return;
+    if (!strategy.isQuorumMet(signals, recipients.length)) {
+      if (force) {
+        // The wait-all deadline was reached and quorum still isn't met (e.g.
+        // every specialist crashed or never responded). Without this, the
+        // coordinator would silently return here forever — no commit is ever
+        // attempted, so the existing POLICY_DENIED->cancelSession fallback
+        // below (which only runs after a *rejected* commit) never triggers
+        // either, and the session hangs until TTL EXPIRED instead of a
+        // deterministic CANCELLED. Drive it to CANCELLED explicitly instead.
+        committed = true;
+        if (waitTimer) {
+          clearTimeout(waitTimer);
+          waitTimer = undefined;
+        }
+        log('wait-all deadline reached with quorum unmet — cancelling session', {
+          received: signals.size,
+          expected: recipients.length
+        });
+        await cancelSessionSafely(
+          `wait-all deadline reached with insufficient signals to evaluate policy (received ${signals.size} of ${recipients.length} expected)`
+        );
+      }
+      return;
+    }
 
     if (waitTimer) {
       clearTimeout(waitTimer);
@@ -264,20 +318,7 @@ async function main(): Promise<void> {
       // until TTL expiry. Drive it to an explicit terminal CANCELLED state (proto
       // 0.1.3 / macp-sdk-typescript 0.4.0) instead, so observers see a deterministic
       // outcome distinct from TTL EXPIRED.
-      const sessionId = bootstrap.session_id ?? '';
-      if (sessionId) {
-        try {
-          await participant.client.cancelSession(sessionId, `commitment rejected by runtime: ${message}`, {
-            auth: participant.auth,
-            cancelledBy: participantId
-          });
-          log('session cancelled after commit denial', { sessionId, reason: message });
-        } catch (cancelError) {
-          log('session cancel failed', {
-            error: cancelError instanceof Error ? cancelError.message : String(cancelError)
-          });
-        }
-      }
+      await cancelSessionSafely(`commitment rejected by runtime: ${message}`);
     }
   }
 
