@@ -6,4 +6,4 @@ crewai==0.203.2
 openai==2.50.0
 # Direct-agent-auth: agents open their own gRPC channel to the MACP runtime
 # via macp_sdk (RFC-MACP-0004 §4).
-macp-sdk-python>=0.6.0,<0.7
+macp-sdk-python>=0.9.1,<0.10

@@ -18,6 +18,7 @@ import { ProcessExampleAgentHostProvider } from './hosting/process-example-agent
 import { HostAdapterRegistry } from './hosting/host-adapter-registry';
 import { LaunchSupervisor } from './hosting/launch-supervisor';
 import { ManifestValidator } from './hosting/manifest-validator';
+import { ControlPlaneRunClient } from './launch/control-plane-run-client.service';
 import { ExampleRunService } from './launch/example-run.service';
 import { LaunchService } from './launch/launch.service';
 import { ApiKeyGuard } from './middleware/api-key.guard';
@@ -50,6 +51,7 @@ import { RegistryIndexService } from './registry/registry-index.service';
     HostingService,
     PolicyLoaderService,
     PolicyRegistrarService,
+    ControlPlaneRunClient,
     ExampleRunService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: ApiKeyGuard }

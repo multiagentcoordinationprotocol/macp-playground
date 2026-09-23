@@ -1,6 +1,6 @@
 import { HostedExampleAgent, ParticipantAgentBinding, ExampleAgentSummary } from './example-agents';
 import { CommitmentDefinition, PayloadEnvelopeTemplate, RuntimeSelectionTemplate } from './registry';
-import { RunDescriptor } from './run-descriptor';
+import { RunDescriptor, RunDescriptorResponse } from './run-descriptor';
 
 export type { CommitmentDefinition };
 export type { RunDescriptor };
@@ -128,4 +128,10 @@ export interface RunExampleResult {
   compiled: CompileLaunchResult;
   hostedAgents: HostedExampleAgent[];
   sessionId?: string;
+  /**
+   * Present iff the CP-1 `POST /runs` submission succeeded (`MACP_CONTROL_PLANE_URL`
+   * configured and reachable). Absent when unconfigured or on failure — the
+   * submission is best-effort and never blocks or fails the run itself.
+   */
+  controlPlaneRun?: RunDescriptorResponse;
 }

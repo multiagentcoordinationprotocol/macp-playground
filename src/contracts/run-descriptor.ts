@@ -49,5 +49,6 @@ export interface RunDescriptorResponse {
   runId: string;
   sessionId: string;
   traceId?: string;
-  status: 'queued' | 'binding_session' | 'running' | 'completed' | 'failed' | string;
+  status:
+    'queued' | 'starting' | 'binding_session' | 'running' | 'suspended' | 'completed' | 'failed' | 'cancelled' | string;
 }

@@ -19,7 +19,7 @@ export interface PolicyDefinition {
       required_before_voting: boolean;
     };
     commitment: {
-      authority: 'initiator_only' | 'designated_roles' | 'any_participant';
+      authority: 'initiator_only' | 'designated_role' | 'any_participant';
       require_vote_quorum: boolean;
       designated_roles: string[];
     };

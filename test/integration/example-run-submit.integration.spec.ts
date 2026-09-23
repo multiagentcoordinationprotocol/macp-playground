@@ -61,6 +61,58 @@ describe('Example Run (integration)', () => {
     });
   });
 
+  describe('CP-1 run submission (POST /runs)', () => {
+    beforeEach(() => {
+      ctx.mockControlPlane?.clearRequests();
+    });
+
+    it('submits exactly one createRun request whose sessionId matches the response', async () => {
+      const result = (await ctx.client.runExample(fraudScenarioRunRequest())) as any;
+
+      expect(ctx.mockControlPlane?.createRunRequests).toHaveLength(1);
+      const submitted = ctx.mockControlPlane!.createRunRequests[0].body as any;
+      expect(submitted.session.sessionId).toBe(result.sessionId);
+      expect(submitted.mode).toBe('sandbox');
+      expect(submitted.session.modeName).toBe('macp.mode.decision.v1');
+
+      // The mock's 201 response is surfaced back on the result.
+      expect(result.controlPlaneRun).toBeDefined();
+      expect(result.controlPlaneRun.sessionId).toBe(result.sessionId);
+    });
+
+    it('never re-introduces the deleted control-plane write paths (observer invariant)', async () => {
+      await ctx.client.runExample(fraudScenarioRunRequest());
+
+      expect(ctx.mockControlPlane?.agentWriteRequests).toHaveLength(0);
+    });
+  });
+
+  describe('CP-1 auth rejection is non-fatal', () => {
+    let rejectingCtx: IntegrationTestContext;
+
+    beforeAll(async () => {
+      rejectingCtx = await createIntegrationTestApp({
+        mockControlPlaneOptions: { requiredBearerToken: 'demo-key' }
+        // controlPlaneApiKey intentionally left unset — client sends no
+        // Authorization header, so the mock's bearer check 401s the request.
+      });
+    });
+
+    afterAll(async () => {
+      if (rejectingCtx) await rejectingCtx.cleanup();
+    });
+
+    it('still bootstraps agents and returns 2xx when the control-plane rejects the submission', async () => {
+      const result = (await rejectingCtx.client.runExample(fraudScenarioRunRequest())) as any;
+
+      expect(result.hostedAgents).toHaveLength(4);
+      expect(result.sessionId).toBeDefined();
+      expect(result.controlPlaneRun).toBeUndefined();
+      // The mock still recorded the attempt — it just rejected it with 401.
+      expect(rejectingCtx.mockControlPlane?.createRunRequests).toHaveLength(1);
+    });
+  });
+
   describe('Direct-agent-auth (ES-9)', () => {
     it('pre-allocates a UUID v4 sessionId and threads it through runDescriptor', async () => {
       const result = (await ctx.client.runExample(fraudScenarioRunRequest())) as any;
