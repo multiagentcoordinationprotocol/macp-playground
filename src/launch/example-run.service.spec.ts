@@ -1,8 +1,10 @@
 import { AppConfigService } from '../config/app-config.service';
 import { CompileLaunchResult } from '../contracts/launch';
+import { RunDescriptorResponse } from '../contracts/run-descriptor';
 import { CompilerService } from '../compiler/compiler.service';
 import { HostedExampleAgent } from '../contracts/example-agents';
 import { HostingService } from '../hosting/hosting.service';
+import { ControlPlaneRunClient } from './control-plane-run-client.service';
 import { ExampleRunService } from './example-run.service';
 
 describe('ExampleRunService', () => {
@@ -10,6 +12,7 @@ describe('ExampleRunService', () => {
   let compiler: jest.Mocked<CompilerService>;
   let hosting: jest.Mocked<HostingService>;
   let config: AppConfigService;
+  let controlPlaneClient: jest.Mocked<ControlPlaneRunClient>;
 
   const sessionId = '00000000-0000-4000-8000-000000000001';
 
@@ -96,8 +99,11 @@ describe('ExampleRunService', () => {
     config = {
       autoBootstrapExampleAgents: true
     } as AppConfigService;
+    controlPlaneClient = {
+      submitRun: jest.fn().mockResolvedValue(null)
+    } as unknown as jest.Mocked<ControlPlaneRunClient>;
 
-    service = new ExampleRunService(compiler, hosting, config);
+    service = new ExampleRunService(compiler, hosting, config, controlPlaneClient);
   });
 
   it('compiles and attaches agents with sessionId', async () => {
@@ -123,20 +129,9 @@ describe('ExampleRunService', () => {
     expect(result.sessionId).toBe(sessionId);
   });
 
-  it('does not call any control-plane endpoints', async () => {
-    await service.run({
-      scenarioRef: 'fraud/high-value-new-device@1.0.0',
-      inputs: {}
-    });
-
-    // No CP dependency at all — just compile + attach
-    expect(compiler.compile).toHaveBeenCalled();
-    expect(hosting.attach).toHaveBeenCalled();
-  });
-
   it('skips attach when bootstrapAgents is false', async () => {
     config = { autoBootstrapExampleAgents: false } as AppConfigService;
-    service = new ExampleRunService(compiler, hosting, config);
+    service = new ExampleRunService(compiler, hosting, config, controlPlaneClient);
 
     const result = await service.run({
       scenarioRef: 'fraud/high-value-new-device@1.0.0',
@@ -146,8 +141,69 @@ describe('ExampleRunService', () => {
 
     expect(hosting.resolve).not.toHaveBeenCalled();
     expect(hosting.attach).not.toHaveBeenCalled();
+    expect(controlPlaneClient.submitRun).not.toHaveBeenCalled();
     expect(result.hostedAgents).toEqual([]);
     expect(result.sessionId).toBeUndefined();
+  });
+
+  describe('CP-1 run submission', () => {
+    const controlPlaneResponse: RunDescriptorResponse = {
+      runId: 'run-abc',
+      sessionId,
+      status: 'queued',
+      traceId: 'trace-abc'
+    };
+
+    it('submits the compiled runDescriptor and attaches it to the result on success', async () => {
+      controlPlaneClient.submitRun.mockResolvedValue(controlPlaneResponse);
+
+      const result = await service.run({
+        scenarioRef: 'fraud/high-value-new-device@1.0.0',
+        inputs: {}
+      });
+
+      expect(controlPlaneClient.submitRun).toHaveBeenCalledWith(
+        expect.objectContaining({ session: expect.objectContaining({ sessionId }) })
+      );
+      expect(result.controlPlaneRun).toEqual(controlPlaneResponse);
+      // Agent bootstrap is unaffected by a successful submission either.
+      expect(hosting.attach).toHaveBeenCalled();
+    });
+
+    it('omits controlPlaneRun and still attaches agents when submission returns null (unconfigured/failed)', async () => {
+      controlPlaneClient.submitRun.mockResolvedValue(null);
+
+      const result = await service.run({
+        scenarioRef: 'fraud/high-value-new-device@1.0.0',
+        inputs: {}
+      });
+
+      expect(result.controlPlaneRun).toBeUndefined();
+      expect(result.hostedAgents).toEqual(attachedAgents);
+      expect(hosting.attach).toHaveBeenCalled();
+    });
+
+    it('still attaches agents when submitRun unexpectedly rejects', async () => {
+      controlPlaneClient.submitRun.mockRejectedValue(new Error('unexpected client bug'));
+
+      const result = await service.run({
+        scenarioRef: 'fraud/high-value-new-device@1.0.0',
+        inputs: {}
+      });
+
+      expect(result.controlPlaneRun).toBeUndefined();
+      expect(result.hostedAgents).toEqual(attachedAgents);
+      expect(hosting.attach).toHaveBeenCalled();
+    });
+
+    it('still rejects run() when hosting.attach fails, independent of control-plane outcome', async () => {
+      hosting.attach.mockRejectedValue(new Error('bootstrap failed'));
+      controlPlaneClient.submitRun.mockResolvedValue(controlPlaneResponse);
+
+      await expect(service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', inputs: {} })).rejects.toThrow(
+        'bootstrap failed'
+      );
+    });
   });
 
   describe('applyRequestOverrides', () => {
