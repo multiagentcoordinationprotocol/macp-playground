@@ -45,6 +45,13 @@ temp/
 # Plans
 plans/
 
+# Claude Code workflow scratch files (/plan, /implement, /reconcile process state) —
+# same local-only convention as CLAUDE.md and plans/ above.
+PROGRESS.md
+ASSUMPTIONS.md
+DECISIONS.md
+.drive.lock
+
 .claude/
 CLAUDE.md
 .env
