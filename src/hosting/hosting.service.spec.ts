@@ -126,4 +126,79 @@ describe('HostingService', () => {
     expect(new Set(seenSessionIds).size).toBe(1);
     expect(seenSessionIds[0]).toBe(sessionId);
   });
+
+  // #90: every scenario in the catalog declares its initiator (risk-agent) last,
+  // which raced non-initiator agents into a session-not-found crash — they'd
+  // connect before the initiator's SessionStart had opened the session. attach()
+  // must spawn the initiator's binding first regardless of declaration order,
+  // while still returning hostedAgents in the original declaration order (API
+  // responses and other tests key off position).
+  it('attaches the initiator before any non-initiator participant, but preserves declaration order in the response', async () => {
+    const recordingProvider = new InMemoryExampleAgentHostProvider();
+    const spawnOrder: string[] = [];
+    const originalAttach = recordingProvider.attach!.bind(recordingProvider);
+    recordingProvider.attach = async (definition, binding, ctx) => {
+      spawnOrder.push(binding.participantId);
+      return originalAttach(definition, binding, ctx);
+    };
+
+    const recordingService = new HostingService(new ExampleAgentCatalogService(), recordingProvider);
+    const compiled = buildCompiled();
+    const context: ExampleAgentRunContext = {
+      runId: 'run-1',
+      sessionId,
+      scenarioRef: compiled.display.scenarioRef,
+      modeName: 'macp.mode.decision.v1',
+      modeVersion: '1.0.0',
+      configurationVersion: 'config.default',
+      ttlMs: 300000,
+      participants: compiled.runDescriptor.session.participants.map((p) => p.id),
+      initiatorParticipantId: 'risk-agent'
+    };
+
+    const hosted = await recordingService.attach(compiled, context);
+
+    expect(spawnOrder[0]).toBe('risk-agent');
+    expect(spawnOrder).toEqual(['risk-agent', 'fraud-agent', 'growth-agent', 'compliance-agent']);
+    expect(hosted.map((agent) => agent.participantId)).toEqual([
+      'fraud-agent',
+      'growth-agent',
+      'compliance-agent',
+      'risk-agent'
+    ]);
+  });
+
+  it('does not reorder when the initiator is already first, or is unidentifiable', async () => {
+    const compiled = buildCompiled();
+    compiled.participantBindings = [
+      { participantId: 'risk-agent', role: 'risk', agentRef: 'risk-agent' },
+      { participantId: 'fraud-agent', role: 'fraud', agentRef: 'fraud-agent' },
+      { participantId: 'growth-agent', role: 'growth', agentRef: 'growth-agent' },
+      { participantId: 'compliance-agent', role: 'compliance', agentRef: 'compliance-agent' }
+    ];
+
+    const recordingProvider = new InMemoryExampleAgentHostProvider();
+    const spawnOrder: string[] = [];
+    const originalAttach = recordingProvider.attach!.bind(recordingProvider);
+    recordingProvider.attach = async (definition, binding, ctx) => {
+      spawnOrder.push(binding.participantId);
+      return originalAttach(definition, binding, ctx);
+    };
+
+    const recordingService = new HostingService(new ExampleAgentCatalogService(), recordingProvider);
+    const context: ExampleAgentRunContext = {
+      runId: 'run-1',
+      sessionId,
+      scenarioRef: compiled.display.scenarioRef,
+      modeName: 'macp.mode.decision.v1',
+      modeVersion: '1.0.0',
+      configurationVersion: 'config.default',
+      ttlMs: 300000,
+      participants: compiled.runDescriptor.session.participants.map((p) => p.id),
+      initiatorParticipantId: 'risk-agent'
+    };
+
+    await recordingService.attach(compiled, context);
+    expect(spawnOrder).toEqual(['risk-agent', 'fraud-agent', 'growth-agent', 'compliance-agent']);
+  });
 });

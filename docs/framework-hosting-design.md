@@ -59,8 +59,14 @@ gRPC — the control-plane never writes on an agent's behalf.
 - Subscribe to the session via the runtime's bidirectional stream.
 - Emit `Proposal` / `Evaluation` / `Vote` / `Commitment` / `Objection` / etc.
   through the SDK mode-helpers (`DecisionSession.vote()`, `.commit()`, …).
-- Receive history replay + live envelopes on stream open (RFC-MACP-0006 §3.2 passive subscribe),
-  so agent spawn order is irrelevant.
+- Receive history replay + live envelopes on stream open (RFC-MACP-0006 §3.2 passive subscribe).
+  This does *not* make spawn order irrelevant: passive subscribe still requires the
+  session to exist. Only the initiator's `SessionStart` actually opens it, so
+  `HostingService.attach()` always spawns the initiator's binding first — every
+  scenario in the catalog happens to declare its initiator last, which otherwise
+  reliably raced non-initiator agents into a session-not-found crash on their first
+  connect (see issue #90). A transient `NOT_FOUND` on the remainder is retried
+  client-side (`macp-sdk-python` issue #75).
 
 ### Bootstrap contract
 
