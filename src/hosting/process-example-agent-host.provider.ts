@@ -150,6 +150,32 @@ export class ProcessExampleAgentHostProvider implements ExampleAgentHostProvider
 
     const record = this.supervisor.launch(prepared, manifest, bootstrap, bootstrapFilePath);
 
+    // `spawn()` returning is not proof the agent is actually running: ENOENT,
+    // permission errors, and immediate crashes (missing venv, import error)
+    // all surface asynchronously via `error`/`exit` events. Without this
+    // confirmation, /examples/run would report `status: 'bootstrapped'` /
+    // `processAttached: true` for a process that never stayed up (PG-1).
+    const confirmation = await this.supervisor.confirmSpawn(record);
+
+    if (!confirmation.ok) {
+      this.logger.error(
+        `attach failed for ${definition.agentRef} (participantId=${binding.participantId}, runId=${context.runId}): ${confirmation.error}`
+      );
+      return {
+        ...base,
+        status: 'resolved',
+        participantMetadata: {
+          ...(base.participantMetadata ?? {}),
+          attachedRunId: context.runId,
+          processAttached: false,
+          pid: record.child.pid,
+          command: record.command,
+          args: record.args,
+          spawnError: confirmation.error
+        }
+      };
+    }
+
     return {
       ...base,
       status: 'bootstrapped',

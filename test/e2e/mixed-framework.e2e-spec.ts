@@ -4,16 +4,18 @@ import request from 'supertest';
 import { AppModule } from '../../src/app.module';
 import { AppConfigService } from '../../src/config/app-config.service';
 import { GlobalExceptionFilter } from '../../src/errors/exception.filter';
-import { buildE2eConfig, stubAuthMinter } from './e2e-config';
+import { buildE2eConfig, stubAuthMinter, stubExampleAgentCatalog } from './e2e-config';
 
 describe('Mixed Framework Scenarios (e2e)', () => {
   let app: INestApplication;
 
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await stubAuthMinter(
-      Test.createTestingModule({
-        imports: [AppModule]
-      }).overrideProvider(AppConfigService).useValue(buildE2eConfig())
+    const moduleFixture: TestingModule = await stubExampleAgentCatalog(
+      stubAuthMinter(
+        Test.createTestingModule({
+          imports: [AppModule]
+        }).overrideProvider(AppConfigService).useValue(buildE2eConfig())
+      )
     ).compile();
 
     app = moduleFixture.createNestApplication();

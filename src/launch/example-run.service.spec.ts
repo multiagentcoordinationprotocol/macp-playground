@@ -313,6 +313,65 @@ describe('ExampleRunService', () => {
     });
   });
 
+  describe('agent attach failures (PG-1)', () => {
+    // Regression coverage: /examples/run used to resolve successfully (HTTP
+    // 201) even when hosting.attach() reported an agent that never actually
+    // attached — hosting.attach() never rejects for that case, it just
+    // downgrades that agent's own `status` to 'resolved' (see
+    // process-example-agent-host.provider.ts). Nothing previously inspected
+    // that per-agent status before building the response.
+    it('rejects run() when an attached-mode agent failed to attach', async () => {
+      hosting.attach.mockResolvedValue([
+        {
+          ...resolvedAgents[0],
+          status: 'resolved',
+          participantMetadata: { processAttached: false, spawnError: 'spawn error: spawn python3 ENOENT' }
+        }
+      ]);
+
+      await expect(service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', inputs: {} })).rejects.toMatchObject(
+        {
+          errorCode: 'AGENT_ATTACH_FAILED'
+        }
+      );
+    });
+
+    it('includes the participant id and reason in the thrown error message', async () => {
+      hosting.attach.mockResolvedValue([
+        {
+          ...resolvedAgents[0],
+          status: 'resolved',
+          participantMetadata: { processAttached: false, spawnError: 'spawn error: spawn python3 ENOENT' }
+        }
+      ]);
+
+      await expect(service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', inputs: {} })).rejects.toThrow(
+        /risk-agent.*spawn error: spawn python3 ENOENT/
+      );
+    });
+
+    it('does not reject when a mock/deferred-mode agent is legitimately never attached', async () => {
+      hosting.attach.mockResolvedValue([
+        {
+          ...resolvedAgents[0],
+          bootstrapMode: 'deferred',
+          status: 'bootstrapped',
+          participantMetadata: { processAttached: false, attachmentMode: 'deferred' }
+        }
+      ]);
+
+      const result = await service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', inputs: {} });
+
+      expect(result.hostedAgents[0].participantMetadata?.attachmentMode).toBe('deferred');
+    });
+
+    it('does not reject when all attached-mode agents report bootstrapped', async () => {
+      await expect(
+        service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', inputs: {} })
+      ).resolves.toMatchObject({ hostedAgents: attachedAgents });
+    });
+  });
+
   describe('applyRequestOverrides', () => {
     it('merges tags', async () => {
       const result = await service.run({

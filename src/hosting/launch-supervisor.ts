@@ -20,8 +20,12 @@ export interface SupervisedProcess {
   exitSignal?: string | null;
 }
 
+export type SpawnConfirmation = { ok: true } | { ok: false; error: string };
+
 @Injectable()
 export class LaunchSupervisor implements OnModuleDestroy {
+  private static readonly SPAWN_CONFIRM_WINDOW_MS = 400;
+
   private readonly logger = new Logger(LaunchSupervisor.name);
   private readonly processes = new Map<string, SupervisedProcess>();
 
@@ -97,6 +101,56 @@ export class LaunchSupervisor implements OnModuleDestroy {
     this.setupStartupTimeout(key, logPrefix, prepared.startupTimeoutMs);
 
     return record;
+  }
+
+  /**
+   * Confirm a just-launched process actually stayed up long enough to count as
+   * attached, rather than trusting `spawn()`'s synchronous return (which says
+   * only "the OS call was made," not "the process is running"). `spawn` is
+   * asynchronous: an ENOENT/EACCES failure, or an immediate crash (missing
+   * venv, import error, bad entrypoint), surfaces as an `error`/`exit` event
+   * on a later tick — after a caller that trusted the synchronous return
+   * would already have reported success. Races those events against a short
+   * grace window; if neither fires, the process is presumed to have spawned
+   * successfully (full "is it healthy" tracking remains `healthStatus`, set
+   * on the startup-timeout window in `setupStartupTimeout`).
+   */
+  confirmSpawn(
+    record: SupervisedProcess,
+    windowMs = LaunchSupervisor.SPAWN_CONFIRM_WINDOW_MS
+  ): Promise<SpawnConfirmation> {
+    if (record.healthStatus === 'unhealthy' || record.healthStatus === 'stopped') {
+      return Promise.resolve({
+        ok: false,
+        error: `process already ${record.healthStatus} before confirmation (code=${record.exitCode ?? 'null'}, signal=${record.exitSignal ?? 'null'})`
+      });
+    }
+
+    return new Promise<SpawnConfirmation>((resolve) => {
+      const child = record.child;
+      let settled = false;
+
+      const finish = (result: SpawnConfirmation) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        child.removeListener('error', onError);
+        child.removeListener('exit', onExit);
+        resolve(result);
+      };
+
+      const onError = (error: Error) => finish({ ok: false, error: `spawn error: ${error.message}` });
+      const onExit = (code: number | null, signal: NodeJS.Signals | null) =>
+        finish({
+          ok: false,
+          error: `process exited before attach confirmed (code=${code ?? 'null'}, signal=${signal ?? 'null'})`
+        });
+
+      child.once('error', onError);
+      child.once('exit', onExit);
+
+      const timer = setTimeout(() => finish({ ok: true }), windowMs);
+    });
   }
 
   getProcess(runId: string, participantId: string): SupervisedProcess | undefined {
