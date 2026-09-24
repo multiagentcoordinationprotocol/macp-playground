@@ -112,6 +112,11 @@ describe('ProcessExampleAgentHostProvider', () => {
       expiresInSeconds: 3600,
       cacheOutcome: 'miss'
     }));
+
+    // Default to a confirmed spawn so existing happy-path tests don't pay the
+    // real confirmSpawn() grace window; the PG-1 regression tests below
+    // override this with `{ ok: false, error: ... }`.
+    jest.spyOn(supervisor, 'confirmSpawn').mockResolvedValue({ ok: true });
   });
 
   describe('resolve', () => {
@@ -199,10 +204,47 @@ describe('ProcessExampleAgentHostProvider', () => {
 
       expect(supervisor.writeBootstrapFile).toHaveBeenCalled();
       expect(supervisor.launch).toHaveBeenCalled();
+      expect(supervisor.confirmSpawn).toHaveBeenCalled();
       expect(result.status).toBe('bootstrapped');
       expect(result.participantMetadata?.processAttached).toBe(true);
       expect(result.participantMetadata?.pid).toBe(12345);
       expect(result.participantMetadata?.launchMode).toBe('adapter');
+    });
+
+    // PG-1 regression: spawn() returning is not proof the agent actually
+    // attached — ENOENT/EACCES and immediate crashes surface asynchronously.
+    // Without confirmSpawn() gating the result, this case was reported as
+    // `status: 'bootstrapped'` / `processAttached: true`, and /examples/run
+    // returned 201 even though the agent process never stayed up.
+    it('reports a failed attach when the process fails to spawn, instead of claiming bootstrapped', async () => {
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      const mockChild = createMockChild();
+      jest.spyOn(supervisor, 'writeBootstrapFile').mockReturnValue('/tmp/bootstrap.json');
+      jest.spyOn(supervisor, 'launch').mockReturnValue({
+        handle: { participantId: 'fraud-agent', runId: 'run-1', pid: 12345, framework: 'langgraph' },
+        child: mockChild,
+        manifest: {
+          id: 'fraud-agent',
+          name: 'Fraud Agent',
+          framework: 'langgraph',
+          entrypoint: { type: 'python_file', value: 'test.py' }
+        },
+        launchedAt: '2026-01-01T00:00:00Z',
+        command: 'python3',
+        args: ['test.py'],
+        bootstrapFilePath: '/tmp/bootstrap.json',
+        healthStatus: 'starting'
+      });
+      jest.spyOn(supervisor, 'confirmSpawn').mockResolvedValue({
+        ok: false,
+        error: 'spawn error: spawn python3 ENOENT'
+      });
+
+      const result = await provider.attach(buildDefinition(), buildBinding(), buildContext());
+
+      expect(result.status).toBe('resolved');
+      expect(result.participantMetadata?.processAttached).toBe(false);
+      expect(result.participantMetadata?.spawnError).toBe('spawn error: spawn python3 ENOENT');
     });
 
     it('deduplicates by runId:participantId via supervisor', async () => {

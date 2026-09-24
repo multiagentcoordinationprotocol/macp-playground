@@ -5,9 +5,11 @@ import * as path from 'node:path';
 import { AppModule } from '../../src/app.module';
 import { AppConfigService } from '../../src/config/app-config.service';
 import { AuthTokenMinterService } from '../../src/auth/auth-token-minter.service';
+import { ExampleAgentCatalogService } from '../../src/example-agents/example-agent-catalog.service';
 import { GlobalExceptionFilter } from '../../src/errors/exception.filter';
 import { MockControlPlane } from './mock-control-plane';
 import { IntegrationTestClient } from './integration-test-client';
+import { buildStubExampleAgentCatalog } from '../fixtures/stub-example-agent-catalog';
 
 export type ControlPlaneMode = 'mock' | 'docker' | 'remote';
 
@@ -35,6 +37,12 @@ export async function createIntegrationTestApp(
     authScopeOverrides: Record<string, Record<string, unknown>>;
     /** Set to false to use the real AuthTokenMinterService (and hit authServiceUrl over HTTP). */
     stubAuthMinter: boolean;
+    /**
+     * Set to false to spawn the real production agent workers instead of the
+     * dependency-free stub. Only meaningful in `mock` mode — `docker`/`remote`
+     * mode always uses the real catalog (that's the point of those modes).
+     */
+    stubExampleAgentCatalog: boolean;
     controlPlaneUrl: string;
     controlPlaneTimeoutMs: number;
     controlPlaneApiKey: string;
@@ -80,6 +88,18 @@ export async function createIntegrationTestApp(
         ...(override ?? {})
       })
     });
+  }
+
+  // `mock` mode never installs the production Python workers' dependencies
+  // (macp_sdk + langgraph/langchain/crewai) — only the docker-built image
+  // does (see the repo Dockerfile). Spawning the real entrypoints there would
+  // make every /examples/run attach fail under PG-1's spawn-confirmation gate
+  // for reasons that have nothing to do with the behavior under test. Default
+  // to the dependency-free stub catalog in `mock` mode; `docker`/`remote`
+  // mode always uses the real one — that's the whole point of those modes.
+  const shouldStubAgentCatalog = overrides?.stubExampleAgentCatalog ?? controlPlaneMode === 'mock';
+  if (shouldStubAgentCatalog) {
+    builder = builder.overrideProvider(ExampleAgentCatalogService).useValue(buildStubExampleAgentCatalog());
   }
 
   const moduleRef = await builder

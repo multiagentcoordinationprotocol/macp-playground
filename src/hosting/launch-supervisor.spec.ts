@@ -119,6 +119,71 @@ describe('LaunchSupervisor', () => {
     });
   });
 
+  describe('confirmSpawn', () => {
+    it('resolves ok:true when the process outlives the confirmation window', async () => {
+      (childProcess.spawn as jest.Mock).mockReturnValue(createMockChild());
+      const record = supervisor.launch(buildPrepared(), buildManifest(), buildBootstrap(), '/tmp/bootstrap.json');
+
+      const confirmation = supervisor.confirmSpawn(record, 400);
+      jest.advanceTimersByTime(400);
+
+      await expect(confirmation).resolves.toEqual({ ok: true });
+    });
+
+    it('resolves ok:false when spawn() fails asynchronously (e.g. ENOENT)', async () => {
+      const mockChild = createMockChild();
+      (childProcess.spawn as jest.Mock).mockReturnValue(mockChild);
+      const record = supervisor.launch(buildPrepared(), buildManifest(), buildBootstrap(), '/tmp/bootstrap.json');
+
+      const confirmation = supervisor.confirmSpawn(record, 400);
+      mockChild.emit('error', new Error('spawn python3 ENOENT'));
+
+      await expect(confirmation).resolves.toEqual({
+        ok: false,
+        error: 'spawn error: spawn python3 ENOENT'
+      });
+    });
+
+    it('resolves ok:false when the process exits before the window elapses', async () => {
+      const mockChild = createMockChild();
+      (childProcess.spawn as jest.Mock).mockReturnValue(mockChild);
+      const record = supervisor.launch(buildPrepared(), buildManifest(), buildBootstrap(), '/tmp/bootstrap.json');
+
+      const confirmation = supervisor.confirmSpawn(record, 400);
+      mockChild.emit('exit', 1, null);
+
+      await expect(confirmation).resolves.toEqual({
+        ok: false,
+        error: 'process exited before attach confirmed (code=1, signal=null)'
+      });
+    });
+
+    it('resolves ok:false immediately for a record already known unhealthy/stopped', async () => {
+      const mockChild = createMockChild();
+      (childProcess.spawn as jest.Mock).mockReturnValue(mockChild);
+      const record = supervisor.launch(buildPrepared(), buildManifest(), buildBootstrap(), '/tmp/bootstrap.json');
+      record.healthStatus = 'unhealthy';
+
+      const confirmation = await supervisor.confirmSpawn(record, 400);
+
+      expect(confirmation.ok).toBe(false);
+    });
+
+    it('does not fire after resolving once the window elapses (no dangling listeners)', async () => {
+      const mockChild = createMockChild();
+      (childProcess.spawn as jest.Mock).mockReturnValue(mockChild);
+      const record = supervisor.launch(buildPrepared(), buildManifest(), buildBootstrap(), '/tmp/bootstrap.json');
+
+      const confirmation = supervisor.confirmSpawn(record, 400);
+      jest.advanceTimersByTime(400);
+      await expect(confirmation).resolves.toEqual({ ok: true });
+
+      // An exit after confirmation already resolved must not throw or hang —
+      // the listeners were removed once `finish()` ran.
+      expect(() => mockChild.emit('exit', 1, null)).not.toThrow();
+    });
+  });
+
   describe('getProcess', () => {
     it('returns undefined for unknown process', () => {
       expect(supervisor.getProcess('run-1', 'unknown')).toBeUndefined();

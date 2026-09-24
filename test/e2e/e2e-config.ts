@@ -1,6 +1,8 @@
 import * as path from 'node:path';
 import { TestingModule, TestingModuleBuilder } from '@nestjs/testing';
 import { AuthTokenMinterService } from '../../src/auth/auth-token-minter.service';
+import { ExampleAgentCatalogService } from '../../src/example-agents/example-agent-catalog.service';
+import { buildStubExampleAgentCatalog } from '../fixtures/stub-example-agent-catalog';
 
 const fixturesPacksDir = path.resolve(__dirname, '../fixtures/packs');
 
@@ -28,6 +30,20 @@ export function stubAuthMinter(builder: TestingModuleBuilder): TestingModuleBuil
 export function installAuthMinterStub(module: TestingModule): void {
   // no-op placeholder — reserved for future interceptor setup if needed
   void module;
+}
+
+/**
+ * Override `ExampleAgentCatalogService` with a dependency-free stub catalog
+ * for e2e specs that call `/examples/run` and actually bootstrap agents.
+ * Spawning the real production Python workers here would require
+ * macp_sdk + langgraph/langchain/crewai to be installed, which this fast e2e
+ * tier never does (only the docker-built image installs
+ * agents/requirements.txt — see the repo Dockerfile) — every attach would
+ * fail under PG-1's spawn-confirmation gate for reasons unrelated to what
+ * these specs are testing.
+ */
+export function stubExampleAgentCatalog(builder: TestingModuleBuilder): TestingModuleBuilder {
+  return builder.overrideProvider(ExampleAgentCatalogService).useValue(buildStubExampleAgentCatalog());
 }
 
 /**

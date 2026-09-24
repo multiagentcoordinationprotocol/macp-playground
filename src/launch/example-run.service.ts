@@ -1,8 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { RunExampleRequest, RunExampleResult } from '../contracts/launch';
 import { AppConfigService } from '../config/app-config.service';
 import { CompilerService } from '../compiler/compiler.service';
+import { HostedExampleAgent } from '../contracts/example-agents';
+import { AppException } from '../errors/app-exception';
+import { ErrorCode } from '../errors/error-codes';
 import { HostingService } from '../hosting/hosting.service';
 import { ControlPlaneRunClient } from './control-plane-run-client.service';
 
@@ -77,6 +80,7 @@ export class ExampleRunService {
       throw hostedAgentsSettled.reason;
     }
     const hostedAgents = hostedAgentsSettled.value;
+    this.assertAllAgentsAttached(sessionId, hostedAgents);
 
     let controlPlaneRun: RunExampleResult['controlPlaneRun'];
     if (controlPlaneSettled.status === 'fulfilled' && controlPlaneSettled.value) {
@@ -96,6 +100,46 @@ export class ExampleRunService {
       sessionId,
       ...(controlPlaneRun ? { controlPlaneRun } : {})
     };
+  }
+
+  /**
+   * `hosting.attach` never rejects just because an agent process failed to
+   * spawn or stay up (mock/deferred-mode agents are legitimately never
+   * attached) — the host provider downgrades that agent's own `status` to
+   * `'resolved'` instead (see process-example-agent-host.provider.ts). Left
+   * unchecked here, /examples/run returned 201 even when a `mode: 'attached'`
+   * agent never actually attached (PG-1). Only agents whose bootstrap mode
+   * *requires* a real attach are held to this — `mock`/`deferred` agents
+   * report `status: 'resolved'` by design and must not trip this check.
+   */
+  private assertAllAgentsAttached(sessionId: string, hostedAgents: HostedExampleAgent[]): void {
+    const failures = hostedAgents.filter(
+      (agent) => agent.bootstrapMode === 'attached' && agent.status !== 'bootstrapped'
+    );
+    if (failures.length === 0) {
+      return;
+    }
+
+    const detail = failures
+      .map((agent) => {
+        const meta = agent.participantMetadata as Record<string, unknown> | undefined;
+        const manifestErrors = meta?.manifestErrors;
+        const reason =
+          (meta?.spawnError as string | undefined) ??
+          (Array.isArray(manifestErrors) ? manifestErrors.join('; ') : undefined) ??
+          'attach failed';
+        return `${agent.participantId} (${reason})`;
+      })
+      .join(', ');
+
+    this.logger.error(`agent_attach_failed sessionId=${sessionId} agents=${detail}`);
+
+    throw new AppException(
+      ErrorCode.AGENT_ATTACH_FAILED,
+      `one or more agents failed to attach and the session cannot proceed: ${detail}`,
+      HttpStatus.BAD_GATEWAY,
+      { sessionId, failedParticipants: failures.map((agent) => agent.participantId) }
+    );
   }
 
   private applyRequestOverrides(compiled: RunExampleResult['compiled'], request: RunExampleRequest): void {

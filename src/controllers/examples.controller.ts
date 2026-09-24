@@ -27,9 +27,10 @@ export class ExamplesController {
   @ApiBadRequestResponse({ description: 'Invalid scenario ref, missing example agent, or validation failure.' })
   @ApiBadGatewayResponse({
     description:
-      'Auth-service JWT minting failed (AUTH_MINT_FAILED, MACP_AUTH_MODE=jwt only). ' +
-      'Note: a CP-1 POST /runs submission failure never produces this response — it is best-effort ' +
-      'and non-fatal, surfaced only by the absence of `controlPlaneRun` on a 201 response.'
+      'Auth-service JWT minting failed (AUTH_MINT_FAILED, MACP_AUTH_MODE=jwt only), or an agent whose ' +
+      'bootstrap mode requires a real attach (`mode: "attached"`) failed to spawn or stay up ' +
+      '(AGENT_ATTACH_FAILED). Note: a CP-1 POST /runs submission failure never produces this response — it is ' +
+      'best-effort and non-fatal, surfaced only by the absence of `controlPlaneRun` on a 201 response.'
   })
   async run(@Body() body: RunExampleRequestDto): Promise<RunExampleResult> {
     return this.exampleRunService.run(body);
