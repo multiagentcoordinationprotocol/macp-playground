@@ -132,10 +132,36 @@ describe('PolicyRulesValidator', () => {
     expect(validator.validateRules('macp.mode.quorum.v1', minimalFixture)).toEqual([]);
   });
 
-  it('validates the mode-agnostic ("*") policy against the decision schema', () => {
+  it('validates a decision-shaped mode-agnostic ("*") policy, still catching a typo nested inside a decision-only key', () => {
     expect(validator.validateRules('*', GOOD_DECISION_RULES)).toEqual([]);
     const broken = { ...GOOD_DECISION_RULES, objection_handling: { veto_threshhold: 3 } };
     expect(validator.validateRules('*', broken).length).toBeGreaterThan(0);
+  });
+
+  it("AC-reconcile: a wildcard policy is validated against every standards-track mode's schema, not just decision's", () => {
+    // Regression test for macp-runtime's own fail-open-defect fix (registry.rs:369-414,
+    // commit 298c0f4): a wildcard-mode policy can legitimately carry a quorum-only field
+    // (`threshold`) if the session it eventually binds to turns out to be a Quorum
+    // session — and that field's value must actually be checked, not silently waved
+    // through the way a Decision-only dispatch would (Decision doesn't recognize
+    // `threshold` at all, so a naive single-schema dispatch never even looks at it).
+    const withValidThreshold = { ...GOOD_DECISION_RULES, threshold: { type: 'n_of_m', value: 5 } };
+    expect(validator.validateRules('*', withValidThreshold)).toEqual([]);
+
+    // threshold.value must be > 0 (schemas/policy/quorum-rules.schema.json's own
+    // exclusiveMinimum: 0 — a zero approval bar trivially passes everything). A
+    // Decision-only wildcard dispatch would never catch this, since Decision's schema
+    // doesn't declare `threshold` and would just reject the whole object as an
+    // unrecognized top-level key rather than checking its value at all.
+    const withInvalidThreshold = { ...GOOD_DECISION_RULES, threshold: { type: 'n_of_m', value: 0 } };
+    expect(validator.validateRules('*', withInvalidThreshold).length).toBeGreaterThan(0);
+  });
+
+  it('AC-reconcile: an entirely unrecognized top-level key on a wildcard policy is still rejected', () => {
+    const withBogusKey = { ...GOOD_DECISION_RULES, totally_made_up_section: { foo: 'bar' } };
+    const errors = validator.validateRules('*', withBogusKey);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some((e) => e.includes('totally_made_up_section'))).toBe(true);
   });
 
   it('returns an explicit "unknown mode" error rather than silently passing for an unrecognized mode', () => {

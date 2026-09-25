@@ -10,15 +10,7 @@ const MODE_SCHEMA_FILES: Record<string, string> = {
   'macp.mode.handoff.v1': 'handoff-rules.schema.json'
 };
 
-/**
- * Every scenario pack in this repo runs macp.mode.decision.v1 exclusively, and every
- * policy this repo has ever shipped — including the wildcard-mode one — uses the
- * decision `rules` shape. A mode-agnostic ("*") policy is therefore validated against
- * the decision schema. UNCONFIRMED assumption, logged to ASSUMPTIONS.md — see #81 /
- * plans/policy-rule-schema-validation.md, Phase 1.
- */
 const WILDCARD_MODE = '*';
-const WILDCARD_MODE_SCHEMA = 'macp.mode.decision.v1';
 
 function loadSchema(schemasDir: string, filename: string): object {
   const raw = fs.readFileSync(path.join(schemasDir, filename), 'utf-8');
@@ -55,6 +47,11 @@ function formatErrors(errors: ErrorObject[] | null | undefined): string[] {
 export class PolicyRulesValidator {
   private readonly ruleValidators = new Map<string, ValidateFunction>();
   private readonly descriptorValidator: ValidateFunction;
+  // Top-level rules key (e.g. "commitment", "voting") -> the sub-schema validators of
+  // every mode that recognizes it. Built for wildcard-mode validation — see
+  // validateWildcardRules(). None of the 5 vendored schemas use $ref/$defs, so slicing
+  // out a `properties[key]` sub-schema and compiling it standalone is safe.
+  private readonly topLevelKeyOwners = new Map<string, ValidateFunction[]>();
 
   constructor() {
     // strict: false — the vendored schemas' conditional (if/then) arms trip ajv's
@@ -70,7 +67,14 @@ export class PolicyRulesValidator {
     const schemasDir = path.resolve(process.cwd(), 'schemas/policy');
 
     for (const [mode, filename] of Object.entries(MODE_SCHEMA_FILES)) {
-      this.ruleValidators.set(mode, ajv.compile(loadSchema(schemasDir, filename)));
+      const schema = loadSchema(schemasDir, filename) as { properties?: Record<string, object> };
+      this.ruleValidators.set(mode, ajv.compile(schema));
+
+      for (const [key, subSchema] of Object.entries(schema.properties ?? {})) {
+        const owners = this.topLevelKeyOwners.get(key) ?? [];
+        owners.push(ajv.compile(subSchema));
+        this.topLevelKeyOwners.set(key, owners);
+      }
     }
 
     this.descriptorValidator = ajv.compile(loadSchema(schemasDir, 'policy-descriptor.schema.json'));
@@ -78,13 +82,75 @@ export class PolicyRulesValidator {
 
   /** Validates a `rules` object against the rule schema for the given mode. */
   validateRules(mode: string, rules: unknown): string[] {
-    const effectiveMode = mode === WILDCARD_MODE ? WILDCARD_MODE_SCHEMA : mode;
-    const validate = this.ruleValidators.get(effectiveMode);
+    if (mode === WILDCARD_MODE) {
+      return this.validateWildcardRules(rules);
+    }
+    const validate = this.ruleValidators.get(mode);
     if (!validate) {
       return [`mode "${mode}": no vendored rule schema is registered for it, cannot validate`];
     }
     const valid = validate(rules);
     return valid ? [] : formatErrors(validate.errors);
+  }
+
+  /**
+   * A "*" (wildcard-mode) policy is bound to whichever mode's session actually starts —
+   * the runtime validates it against every standards-track mode's rules schema, not just
+   * Decision's (macp-runtime crates/macp-policy/src/registry.rs:369-414, closing a
+   * fail-open defect fixed in runtime commit 298c0f4: a Decision-only wildcard dispatch —
+   * this validator's original approach — let a quorum `threshold` field through with no
+   * check of any kind).
+   *
+   * Unlike a mode-specific policy, a wildcard policy legitimately carries top-level keys
+   * only *some* modes recognize (this repo's own policy.default.json uses Decision's
+   * voting/objection_handling/evaluation shape; `commitment` is recognized by all 5,
+   * `acceptance` by proposal and handoff). Whole-object validation against all 5 schemas
+   * at once doesn't work here: it would either reject every legitimate mode-specific key
+   * as "unrecognized" by the other 4 schemas, or — if additionalProperties errors are
+   * blanket-suppressed to work around that — silently swallow a genuine typo too (an
+   * earlier version of this method did exactly that; caught by
+   * policy-rules-validator.spec.ts's own `broken`/`veto_threshhold` case).
+   *
+   * So this validates **per top-level key**, not per whole object: each key present in
+   * `rules` is checked against every mode's sub-schema that declares it (topLevelKeyOwners,
+   * built at construction time), and passes if it's valid against *at least one* of them —
+   * "legitimate under some mode this wildcard could bind to." A key no schema declares at
+   * all is a real, unconditional error. This also naturally reproduces real typo-catching
+   * inside a key only one mode owns (e.g. `objection_handling.veto_threshhold`): since
+   * only Decision declares `objection_handling`, that's the only candidate, and Decision's
+   * own sub-schema still rejects the typo.
+   */
+  private validateWildcardRules(rules: unknown): string[] {
+    if (typeof rules !== 'object' || rules === null || Array.isArray(rules)) {
+      // Not a validatable object at all — delegate to one whole-schema validator for a
+      // sensible top-level type error; every mode's schema agrees rules must be an object.
+      const validate = this.ruleValidators.get('macp.mode.decision.v1')!;
+      const valid = validate(rules);
+      return valid ? [] : formatErrors(validate.errors);
+    }
+
+    const errors: string[] = [];
+    for (const key of Object.keys(rules as Record<string, unknown>)) {
+      const owners = this.topLevelKeyOwners.get(key);
+      if (!owners || owners.length === 0) {
+        errors.push(`(root): unrecognized key "${key}"`);
+        continue;
+      }
+
+      const value = (rules as Record<string, unknown>)[key];
+      const acceptedByAtLeastOneMode = owners.some((validate) => validate(value));
+      if (acceptedByAtLeastOneMode) {
+        continue;
+      }
+
+      // No candidate mode accepted this key's value — report the first owner's errors
+      // (deterministic: MODE_SCHEMA_FILES' declaration order), with instancePath rebased
+      // from the sub-schema's root onto this key's actual position in `rules`.
+      const firstOwnerErrors = owners[0].errors ?? [];
+      const rebased = firstOwnerErrors.map((error) => ({ ...error, instancePath: `/${key}${error.instancePath}` }));
+      errors.push(...formatErrors(rebased));
+    }
+    return errors;
   }
 
   /**
