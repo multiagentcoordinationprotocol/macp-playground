@@ -4,6 +4,7 @@ import logging
 
 from crewai_worker.crew import _score_result, build_crew
 from crewai_worker.mappers import (
+    build_prompt,
     detect_domain,
     extract_agent_metadata,
     map_crew_result_to_macp_messages,
@@ -321,3 +322,52 @@ class TestBothCallSitesDelegate:
         via_fallback = build_crew(inputs).kickoff()
         assert via_fallback == direct
         assert direct['recommendation'] == 'APPROVE'
+
+
+class TestBuildPrompt:
+    def test_fraud_prompt_unchanged_from_original(self):
+        inputs = map_kickoff_to_crew_inputs(
+            {'deviceTrustScore': 0.5, 'priorChargebacks': 0, 'transactionAmount': 100, 'accountAgeDays': 100}
+        )
+        backstory, description = build_prompt('fraud', inputs)
+        assert backstory == (
+            'You are a compliance analyst reviewing transactions for KYC/AML and '
+            'policy adherence. You flag issues with severity ratings. '
+            'Respond with a JSON object containing: message_type (Evaluation or Objection), '
+            'recommendation (APPROVE/REVIEW/BLOCK), confidence (0-1), reason, and severity.'
+        )
+        assert description == (
+            "Review the following transaction for compliance:\n"
+            "- Device trust score: 0.5\n"
+            "- Transaction amount: 100.0\n"
+            "- Account age (days): 100\n"
+            "- Prior chargebacks: 0\n"
+            "Provide a compliance assessment as JSON with: "
+            "message_type, recommendation, confidence, reason, severity."
+        )
+
+    def test_lending_prompt_has_lending_fields_and_no_fraud_mention(self):
+        inputs = map_kickoff_to_crew_inputs(
+            {'creditScore': 720, 'debtToIncomeRatio': 0.28, 'employmentYears': 6, 'priorDefaults': 0}
+        )
+        backstory, description = build_prompt('lending', inputs)
+        assert 'Credit score' in description
+        assert 'Debt-to-income' in description
+        assert 'Employment' in description
+        assert 'fraud' not in (backstory + description).lower()
+
+    def test_claims_prompt_has_claims_fields_and_no_fraud_mention(self):
+        inputs = map_kickoff_to_crew_inputs(
+            {'claimAmount': 2000, 'policyAge': 24, 'priorClaims': 0, 'isHighValuePolicy': False,
+             'incidentSeverity': 'minor'}
+        )
+        backstory, description = build_prompt('claims', inputs)
+        assert 'Claim amount' in description
+        assert 'Policy age' in description
+        assert 'Incident severity' in description
+        assert 'fraud' not in (backstory + description).lower()
+
+    def test_unrecognized_domain_falls_back_to_a_valid_nonempty_fraud_prompt(self):
+        backstory, description = build_prompt('bogus-domain', {})
+        assert backstory and description
+        assert 'compliance analyst' in backstory

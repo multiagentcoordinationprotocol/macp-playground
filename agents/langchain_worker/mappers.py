@@ -141,6 +141,66 @@ def score_by_domain(domain: Domain, fields: JsonDict):
     )
 
 
+def build_prompt(domain: Domain, fields: JsonDict):
+    """Domain-framed LLM prompt text as (system_message, human_message), both
+    fully rendered with no unresolved template variables — extracted from
+    chain.py so their content is checkable in CI (the LLM call itself stays
+    untestable here, but what we send it is not; see
+    plans/example-agent-domain-scoring.md Phase 3). The fraud branch is
+    byte-for-byte unchanged from chain.py's original inline text. Double
+    braces in the JSON-shape examples are intentional — they still pass
+    through ChatPromptTemplate, which un-escapes `{{`/`}}` to literal `{`/`}`."""
+    if domain == 'lending':
+        system = (
+            'You are a credit underwriting analyst evaluating whether a loan application should be '
+            'approved, reviewed, or rejected from a creditworthiness perspective. '
+            'Balance repayment risk against applicant opportunity. '
+            'Respond with ONLY a JSON object (no markdown): '
+            '{{"recommendation": "APPROVE"|"REVIEW"|"REJECT", "confidence": 0.0-1.0, '
+            '"reason": "brief explanation", "factors": ["factor1", "factor2"]}}'
+        )
+        human = (
+            f"Credit score: {fields.get('credit_score', 'unknown')}\n"
+            f"Debt-to-income ratio: {fields.get('debt_to_income_ratio', 'unknown')}\n"
+            f"Employment history: {fields.get('employment_years', 'unknown')} years\n"
+            f"Prior defaults: {fields.get('prior_defaults', 0)}"
+        )
+        return system, human
+    if domain == 'claims':
+        system = (
+            'You are an insurance claims analyst evaluating whether a claim should be '
+            'approved, reviewed, or rejected from a policy-compliance perspective. '
+            'Balance claim legitimacy against customer experience and retention. '
+            'Respond with ONLY a JSON object (no markdown): '
+            '{{"recommendation": "APPROVE"|"REVIEW"|"REJECT", "confidence": 0.0-1.0, '
+            '"reason": "brief explanation", "factors": ["factor1", "factor2"]}}'
+        )
+        human = (
+            f"Claim amount: ${fields.get('claim_amount', 'unknown')}\n"
+            f"Policy age: {fields.get('policy_age', 'unknown')} months\n"
+            f"Prior claims: {fields.get('prior_claims', 0)}\n"
+            f"High-value policy: {fields.get('is_high_value_policy', False)}\n"
+            f"Incident severity: {fields.get('incident_severity', 'unknown')}"
+        )
+        return system, human
+    system = (
+        'You are a growth analyst evaluating whether a transaction should be approved, '
+        'reviewed, or blocked from a customer value and revenue perspective. '
+        'Balance fraud risk against customer experience and retention. '
+        'Respond with ONLY a JSON object (no markdown): '
+        '{{"recommendation": "APPROVE"|"REVIEW"|"BLOCK", "confidence": 0.0-1.0, '
+        '"reason": "brief explanation", "factors": ["factor1", "factor2"]}}'
+    )
+    human = (
+        f"Transaction: ${fields.get('transaction_amount', 0)}\n"
+        f"VIP customer: {fields.get('is_vip_customer', False)}\n"
+        f"Account age: {fields.get('account_age_days', 0)} days\n"
+        f"Device trust: {fields.get('device_trust_score', 0)}\n"
+        f"Prior chargebacks: {fields.get('prior_chargebacks', 0)}"
+    )
+    return system, human
+
+
 def map_kickoff_to_inputs(session_context: JsonDict, metadata: JsonDict = None) -> JsonDict:
     """Convert MACP session context into LangChain chain input."""
     return {

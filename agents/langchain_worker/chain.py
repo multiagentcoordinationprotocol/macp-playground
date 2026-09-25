@@ -9,9 +9,9 @@ import os
 from typing import Any, Dict
 
 try:
-    from mappers import score_by_domain
+    from mappers import build_prompt, score_by_domain
 except ImportError:
-    from .mappers import score_by_domain
+    from .mappers import build_prompt, score_by_domain
 
 JsonDict = Dict[str, Any]
 
@@ -39,23 +39,10 @@ try:
 
         llm = ChatOpenAI(model='gpt-4o-mini', temperature=0, api_key=api_key)
 
-        prompt = ChatPromptTemplate.from_messages([
-            ('system',
-             'You are a growth analyst evaluating whether a transaction should be approved, '
-             'reviewed, or blocked from a customer value and revenue perspective. '
-             'Balance fraud risk against customer experience and retention. '
-             'Respond with ONLY a JSON object (no markdown): '
-             '{{"recommendation": "APPROVE"|"REVIEW"|"BLOCK", "confidence": 0.0-1.0, '
-             '"reason": "brief explanation", "factors": ["factor1", "factor2"]}}'),
-            ('human',
-             'Transaction: ${transaction_amount}\n'
-             'VIP customer: {is_vip_customer}\n'
-             'Account age: {account_age_days} days\n'
-             'Device trust: {device_trust_score}\n'
-             'Prior chargebacks: {prior_chargebacks}'),
-        ])
-
         def invoke_with_usage(inputs: JsonDict) -> JsonDict:
+            domain = inputs.get('domain', 'fraud')
+            system_message, human_message = build_prompt(domain, inputs)
+            prompt = ChatPromptTemplate.from_messages([('system', system_message), ('human', human_message)])
             chain = prompt | llm
             response = chain.invoke(inputs)
 

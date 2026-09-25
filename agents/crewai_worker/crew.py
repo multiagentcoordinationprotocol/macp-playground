@@ -9,9 +9,9 @@ import os
 from typing import Any, Dict
 
 try:
-    from mappers import score_by_domain
+    from mappers import build_prompt, score_by_domain
 except ImportError:
-    from .mappers import score_by_domain
+    from .mappers import build_prompt, score_by_domain
 
 JsonDict = Dict[str, Any]
 
@@ -52,15 +52,13 @@ try:
 
             return DeterministicCrew()
 
+        domain = inputs.get('domain', 'fraud')
+        backstory, task_description = build_prompt(domain, inputs)
+
         agent_kwargs: JsonDict = {
             'role': 'Compliance Analyst',
             'goal': 'Review transactions for policy and regulatory compliance',
-            'backstory': (
-                'You are a compliance analyst reviewing transactions for KYC/AML and '
-                'policy adherence. You flag issues with severity ratings. '
-                'Respond with a JSON object containing: message_type (Evaluation or Objection), '
-                'recommendation (APPROVE/REVIEW/BLOCK), confidence (0-1), reason, and severity.'
-            ),
+            'backstory': backstory,
             'verbose': False,
             'allow_delegation': False,
         }
@@ -74,15 +72,7 @@ try:
         compliance_analyst = Agent(**agent_kwargs)
 
         review_task = Task(
-            description=(
-                f"Review the following transaction for compliance:\n"
-                f"- Device trust score: {inputs.get('device_trust_score', 'unknown')}\n"
-                f"- Transaction amount: {inputs.get('transaction_amount', 'unknown')}\n"
-                f"- Account age (days): {inputs.get('account_age_days', 'unknown')}\n"
-                f"- Prior chargebacks: {inputs.get('prior_chargebacks', 'unknown')}\n"
-                "Provide a compliance assessment as JSON with: "
-                "message_type, recommendation, confidence, reason, severity."
-            ),
+            description=task_description,
             expected_output=(
                 'JSON with message_type (Evaluation or Objection), severity, reason, recommendation, and confidence'
             ),

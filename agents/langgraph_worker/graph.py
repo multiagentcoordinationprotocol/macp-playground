@@ -9,9 +9,9 @@ import os
 from typing import Any, Dict, List, TypedDict
 
 try:
-    from mappers import score_by_domain
+    from mappers import build_prompt, score_by_domain
 except ImportError:
-    from .mappers import score_by_domain
+    from .mappers import build_prompt, score_by_domain
 
 JsonDict = Dict[str, Any]
 
@@ -68,20 +68,8 @@ try:
             return _score_result(state)
 
         llm = ChatOpenAI(model='gpt-4o-mini', temperature=0, api_key=api_key)
-        signals = state.get('signals', [])
-
-        prompt = (
-            f"You are a fraud detection analyst. Based on the following signals and transaction data, "
-            f"provide a fraud assessment.\n\n"
-            f"Signals detected: {', '.join(signals) if signals else 'none'}\n"
-            f"Device trust score: {state.get('device_trust_score', 'unknown')}\n"
-            f"Prior chargebacks: {state.get('prior_chargebacks', 0)}\n"
-            f"Transaction amount: ${state.get('transaction_amount', 0)}\n"
-            f"Account age: {state.get('account_age_days', 0)} days\n"
-            f"VIP customer: {state.get('is_vip_customer', False)}\n\n"
-            f"Respond with ONLY a JSON object (no markdown): "
-            f'{{"recommendation": "APPROVE"|"REVIEW"|"BLOCK", "confidence": 0.0-1.0, "reason": "brief explanation"}}'
-        )
+        domain = state.get('domain', 'fraud')
+        prompt = build_prompt(domain, state)
 
         response = llm.invoke(prompt)
 

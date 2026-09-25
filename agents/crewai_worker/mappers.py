@@ -144,6 +144,65 @@ def score_by_domain(domain: Domain, fields: JsonDict):
     )
 
 
+def build_prompt(domain: Domain, fields: JsonDict):
+    """Domain-framed LLM prompt text as (backstory, task_description) —
+    extracted from crew.py so their content is checkable in CI (the LLM call
+    itself stays untestable here, but what we send it is not; see
+    plans/example-agent-domain-scoring.md Phase 3). The fraud branch is
+    byte-for-byte unchanged from crew.py's original inline text."""
+    if domain == 'lending':
+        backstory = (
+            'You are a credit risk analyst reviewing loan applications for underwriting '
+            'policy adherence. You flag issues with severity ratings. '
+            'Respond with a JSON object containing: message_type (Evaluation or Objection), '
+            'recommendation (APPROVE/REVIEW/REJECT), confidence (0-1), reason, and severity.'
+        )
+        description = (
+            f"Review the following loan application for underwriting policy:\n"
+            f"- Credit score: {fields.get('credit_score', 'unknown')}\n"
+            f"- Debt-to-income ratio: {fields.get('debt_to_income_ratio', 'unknown')}\n"
+            f"- Employment years: {fields.get('employment_years', 'unknown')}\n"
+            f"- Prior defaults: {fields.get('prior_defaults', 'unknown')}\n"
+            "Provide an underwriting assessment as JSON with: "
+            "message_type, recommendation, confidence, reason, severity."
+        )
+        return backstory, description
+    if domain == 'claims':
+        backstory = (
+            'You are a claims compliance analyst reviewing insurance claims for regulatory '
+            'and policy adherence. You flag issues with severity ratings. '
+            'Respond with a JSON object containing: message_type (Evaluation or Objection), '
+            'recommendation (APPROVE/REVIEW/REJECT), confidence (0-1), reason, and severity.'
+        )
+        description = (
+            f"Review the following insurance claim for compliance:\n"
+            f"- Claim amount: {fields.get('claim_amount', 'unknown')}\n"
+            f"- Policy age (months): {fields.get('policy_age', 'unknown')}\n"
+            f"- Prior claims: {fields.get('prior_claims', 'unknown')}\n"
+            f"- High-value policy: {fields.get('is_high_value_policy', 'unknown')}\n"
+            f"- Incident severity: {fields.get('incident_severity', 'unknown')}\n"
+            "Provide a compliance assessment as JSON with: "
+            "message_type, recommendation, confidence, reason, severity."
+        )
+        return backstory, description
+    backstory = (
+        'You are a compliance analyst reviewing transactions for KYC/AML and '
+        'policy adherence. You flag issues with severity ratings. '
+        'Respond with a JSON object containing: message_type (Evaluation or Objection), '
+        'recommendation (APPROVE/REVIEW/BLOCK), confidence (0-1), reason, and severity.'
+    )
+    description = (
+        f"Review the following transaction for compliance:\n"
+        f"- Device trust score: {fields.get('device_trust_score', 'unknown')}\n"
+        f"- Transaction amount: {fields.get('transaction_amount', 'unknown')}\n"
+        f"- Account age (days): {fields.get('account_age_days', 'unknown')}\n"
+        f"- Prior chargebacks: {fields.get('prior_chargebacks', 'unknown')}\n"
+        "Provide a compliance assessment as JSON with: "
+        "message_type, recommendation, confidence, reason, severity."
+    )
+    return backstory, description
+
+
 def map_kickoff_to_crew_inputs(session_context: JsonDict, metadata: JsonDict = None) -> JsonDict:
     """Convert MACP session context into CrewAI crew input."""
     return {

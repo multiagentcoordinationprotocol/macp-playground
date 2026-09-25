@@ -141,6 +141,50 @@ def score_by_domain(domain: Domain, fields: JsonDict):
     return score_fraud(fields.get('device_trust_score'), fields.get('prior_chargebacks'))
 
 
+def build_prompt(domain: Domain, fields: JsonDict) -> str:
+    """Domain-framed LLM prompt text — extracted from graph.py's inline
+    f-string so its content is checkable in CI (the LLM call itself stays
+    untestable here, but what we send it is not; see
+    plans/example-agent-domain-scoring.md Phase 3). The fraud branch is
+    byte-for-byte unchanged from graph.py's original inline text."""
+    if domain == 'lending':
+        return (
+            f"You are a credit underwriting analyst. Based on the following applicant data, "
+            f"provide a lending recommendation.\n\n"
+            f"Credit score: {fields.get('credit_score', 'unknown')}\n"
+            f"Debt-to-income ratio: {fields.get('debt_to_income_ratio', 'unknown')}\n"
+            f"Employment history: {fields.get('employment_years', 'unknown')} years\n"
+            f"Prior defaults: {fields.get('prior_defaults', 0)}\n\n"
+            f"Respond with ONLY a JSON object (no markdown): "
+            f'{{"recommendation": "APPROVE"|"REVIEW"|"REJECT", "confidence": 0.0-1.0, "reason": "brief explanation"}}'
+        )
+    if domain == 'claims':
+        return (
+            f"You are an insurance claims adjuster. Based on the following claim data, "
+            f"provide a claims recommendation.\n\n"
+            f"Claim amount: ${fields.get('claim_amount', 'unknown')}\n"
+            f"Policy age: {fields.get('policy_age', 'unknown')} months\n"
+            f"Prior claims: {fields.get('prior_claims', 0)}\n"
+            f"High-value policy: {fields.get('is_high_value_policy', False)}\n"
+            f"Incident severity: {fields.get('incident_severity', 'unknown')}\n\n"
+            f"Respond with ONLY a JSON object (no markdown): "
+            f'{{"recommendation": "APPROVE"|"REVIEW"|"REJECT", "confidence": 0.0-1.0, "reason": "brief explanation"}}'
+        )
+    signals = fields.get('signals', [])
+    return (
+        f"You are a fraud detection analyst. Based on the following signals and transaction data, "
+        f"provide a fraud assessment.\n\n"
+        f"Signals detected: {', '.join(signals) if signals else 'none'}\n"
+        f"Device trust score: {fields.get('device_trust_score', 'unknown')}\n"
+        f"Prior chargebacks: {fields.get('prior_chargebacks', 0)}\n"
+        f"Transaction amount: ${fields.get('transaction_amount', 0)}\n"
+        f"Account age: {fields.get('account_age_days', 0)} days\n"
+        f"VIP customer: {fields.get('is_vip_customer', False)}\n\n"
+        f"Respond with ONLY a JSON object (no markdown): "
+        f'{{"recommendation": "APPROVE"|"REVIEW"|"BLOCK", "confidence": 0.0-1.0, "reason": "brief explanation"}}'
+    )
+
+
 def map_kickoff_to_state(session_context: JsonDict, metadata: JsonDict = None) -> JsonDict:
     """Convert MACP session context into LangGraph input state."""
     return {

@@ -4,6 +4,7 @@ import logging
 
 from langchain_worker.chain import _score_result, build_agent
 from langchain_worker.mappers import (
+    build_prompt,
     detect_domain,
     extract_agent_metadata,
     map_kickoff_to_inputs,
@@ -284,3 +285,50 @@ class TestBothCallSitesDelegate:
         via_fallback = build_agent().invoke(inputs)
         assert via_fallback['recommendation'] == direct['recommendation'] == 'APPROVE'
         assert via_fallback['confidence'] == direct['confidence']
+
+
+class TestBuildPrompt:
+    def test_fraud_prompt_unchanged_from_original(self):
+        inputs = map_kickoff_to_inputs({'isVipCustomer': False, 'accountAgeDays': 10, 'transactionAmount': 1000})
+        system, human = build_prompt('fraud', inputs)
+        assert system == (
+            'You are a growth analyst evaluating whether a transaction should be approved, '
+            'reviewed, or blocked from a customer value and revenue perspective. '
+            'Balance fraud risk against customer experience and retention. '
+            'Respond with ONLY a JSON object (no markdown): '
+            '{{"recommendation": "APPROVE"|"REVIEW"|"BLOCK", "confidence": 0.0-1.0, '
+            '"reason": "brief explanation", "factors": ["factor1", "factor2"]}}'
+        )
+        assert human == (
+            'Transaction: $1000.0\n'
+            'VIP customer: False\n'
+            'Account age: 10 days\n'
+            'Device trust: 0.0\n'
+            'Prior chargebacks: 0'
+        )
+
+    def test_lending_prompt_has_lending_fields_and_no_fraud_mention(self):
+        inputs = map_kickoff_to_inputs(
+            {'creditScore': 720, 'debtToIncomeRatio': 0.28, 'employmentYears': 6, 'priorDefaults': 0}
+        )
+        system, human = build_prompt('lending', inputs)
+        assert 'Credit score' in human
+        assert 'Debt-to-income' in human
+        assert 'Employment' in human
+        assert 'fraud' not in (system + human).lower()
+
+    def test_claims_prompt_has_claims_fields_and_no_fraud_mention(self):
+        inputs = map_kickoff_to_inputs(
+            {'claimAmount': 2000, 'policyAge': 24, 'priorClaims': 0, 'isHighValuePolicy': False,
+             'incidentSeverity': 'minor'}
+        )
+        system, human = build_prompt('claims', inputs)
+        assert 'Claim amount' in human
+        assert 'Policy age' in human
+        assert 'Incident severity' in human
+        assert 'fraud' not in (system + human).lower()
+
+    def test_unrecognized_domain_falls_back_to_a_valid_nonempty_fraud_prompt(self):
+        system, human = build_prompt('bogus-domain', {})
+        assert system and human
+        assert 'growth analyst' in system

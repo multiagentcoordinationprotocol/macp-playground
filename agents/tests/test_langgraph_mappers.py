@@ -4,6 +4,7 @@ import logging
 
 from langgraph_worker.graph import _score_result, build_graph
 from langgraph_worker.mappers import (
+    build_prompt,
     detect_domain,
     extract_agent_metadata,
     map_kickoff_to_state,
@@ -280,3 +281,47 @@ class TestBothCallSitesDelegate:
         via_fallback = build_graph().invoke(state)
         assert via_fallback['recommendation'] == direct['recommendation'] == 'APPROVE'
         assert via_fallback['confidence'] == direct['confidence']
+
+
+class TestBuildPrompt:
+    def test_fraud_prompt_unchanged_from_original(self):
+        state = map_kickoff_to_state({'deviceTrustScore': 0.5, 'priorChargebacks': 0})
+        prompt = build_prompt('fraud', state)
+        assert prompt == (
+            "You are a fraud detection analyst. Based on the following signals and transaction data, "
+            "provide a fraud assessment.\n\n"
+            "Signals detected: none\n"
+            "Device trust score: 0.5\n"
+            "Prior chargebacks: 0\n"
+            "Transaction amount: $0.0\n"
+            "Account age: 0 days\n"
+            "VIP customer: False\n\n"
+            "Respond with ONLY a JSON object (no markdown): "
+            '{"recommendation": "APPROVE"|"REVIEW"|"BLOCK", "confidence": 0.0-1.0, "reason": "brief explanation"}'
+        )
+
+    def test_lending_prompt_has_lending_fields_and_no_fraud_mention(self):
+        state = map_kickoff_to_state(
+            {'creditScore': 720, 'debtToIncomeRatio': 0.28, 'employmentYears': 6, 'priorDefaults': 0}
+        )
+        prompt = build_prompt('lending', state)
+        assert 'Credit score' in prompt
+        assert 'Debt-to-income' in prompt
+        assert 'Employment' in prompt
+        assert 'fraud' not in prompt.lower()
+
+    def test_claims_prompt_has_claims_fields_and_no_fraud_mention(self):
+        state = map_kickoff_to_state(
+            {'claimAmount': 2000, 'policyAge': 24, 'priorClaims': 0, 'isHighValuePolicy': False,
+             'incidentSeverity': 'minor'}
+        )
+        prompt = build_prompt('claims', state)
+        assert 'Claim amount' in prompt
+        assert 'Policy age' in prompt
+        assert 'Incident severity' in prompt
+        assert 'fraud' not in prompt.lower()
+
+    def test_unrecognized_domain_falls_back_to_a_valid_nonempty_fraud_prompt(self):
+        prompt = build_prompt('bogus-domain', {})
+        assert prompt
+        assert 'fraud detection analyst' in prompt
