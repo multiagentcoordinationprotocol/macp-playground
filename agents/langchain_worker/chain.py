@@ -66,13 +66,12 @@ try:
                     'token_usage': token_usage,
                 }
             except (json.JSONDecodeError, ValueError):
-                return {
-                    'recommendation': 'REVIEW',
-                    'confidence': 0.7,
-                    'reason': str(response.content)[:200],
-                    'factors': [],
-                    'token_usage': token_usage,
-                }
+                # Domain-aware fallback — same score_by_domain dispatch as the no-API-key
+                # branch (build_agent's RunnableLambda(_score_result)), not a hardcoded
+                # fraud-shaped REVIEW/0.7 (plans/example-agent-domain-scoring.md Phase 2,
+                # AC#7: the framework-available parse-failure path must be domain-aware too).
+                fallback = _score_result(inputs)
+                return {**fallback, 'factors': [], 'token_usage': token_usage}
 
         return RunnableLambda(invoke_with_usage)
 

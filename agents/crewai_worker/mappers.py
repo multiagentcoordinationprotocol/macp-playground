@@ -154,7 +154,7 @@ def build_prompt(domain: Domain, fields: JsonDict):
         backstory = (
             'You are a credit risk analyst reviewing loan applications for underwriting '
             'policy adherence. You flag issues with severity ratings. '
-            'Respond with a JSON object containing: message_type (Evaluation or Objection), '
+            'Respond with a JSON object containing: message_type (Evaluation), '
             'recommendation (APPROVE/REVIEW/REJECT), confidence (0-1), reason, and severity.'
         )
         description = (
@@ -171,7 +171,7 @@ def build_prompt(domain: Domain, fields: JsonDict):
         backstory = (
             'You are a claims compliance analyst reviewing insurance claims for regulatory '
             'and policy adherence. You flag issues with severity ratings. '
-            'Respond with a JSON object containing: message_type (Evaluation or Objection), '
+            'Respond with a JSON object containing: message_type (Evaluation), '
             'recommendation (APPROVE/REVIEW/REJECT), confidence (0-1), reason, and severity.'
         )
         description = (
