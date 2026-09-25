@@ -374,20 +374,28 @@ and the auth-service logs.
 (non-blocking) for missing `policy_id`, out-of-range values, or
 obviously invalid combinations. As of #81, this check includes real
 **shape** conformance against the vendored upstream rule schemas
-(`schemas/policy/`, see its `README.md` for provenance) — the same
-schemas the runtime's own validation is generated from — so an unknown
-key or an empty `designated_roles` under `designated_role` authority is
-now caught locally, with a logged warning, before registration is even
+(`schemas/policy/`, see its `README.md` for provenance) — the canonical
+JSON Schema definitions published in the spec repo — so an unknown key
+or an empty `designated_roles` under `designated_role` authority is now
+caught locally, with a logged warning, before registration is even
 attempted. (`schema_version`'s allowed range is checked separately by
 this loader's own pre-existing bound; the schema's closed `{1, 2, 3}`
 enum is enforced by the CI gate in `src/policy/policies-on-disk.spec.ts`,
 which validates each shipped file's full descriptor, not by this
 warn-on-load path.) This local check is still non-blocking (a bad file
-loads anyway, matching this repo's existing warn-and-load design) and is
-not a substitute for the runtime:
-the **authoritative** schema validation happens at the runtime during
-`RegisterPolicy` — if a descriptor passes local load but fails at the
-runtime, the registrar logs `policy_register_exception` with the
-runtime's `INVALID_POLICY_DEFINITION` reason. See
+loads anyway, matching this repo's existing warn-and-load design) and it
+is not a proxy for the runtime's own validation: the runtime's
+`RegisterPolicy` enforcement is a **separate, hand-written Rust
+implementation**, not generated from these JSON schemas, and it has
+documented divergence from them (for example, the runtime accepts an
+`n_of_m` quorum type that isn't in the schema's canonical enum, and — at
+least as of this writing — it does not enforce closed objects the way
+these schemas' `additionalProperties: false` does). In practice that
+means this repo's local check is *stricter* than the runtime for #81's
+exact bug class (unknown keys), so a file can pass local load with no
+warning yet still be exactly the shape the runtime would reject, and
+vice versa. If a descriptor passes local load but fails at the runtime,
+the registrar logs `policy_register_exception` with the runtime's
+`INVALID_POLICY_DEFINITION` reason. See
 [`macp-runtime/docs/policy.md` § Registering a policy](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md#registering-a-policy)
-for the validation rules the runtime enforces.
+for the validation rules the runtime actually enforces.

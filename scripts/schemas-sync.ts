@@ -9,7 +9,10 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 
 const REPO = 'multiagentcoordinationprotocol/multiagentcoordinationprotocol';
-const REF = '579d49b82aff2c8441ab5dfcbd22d62666471b0a';
+// Intentionally tracks the spec repo's moving default branch, not the commit these
+// schemas were vendored from — pinning to the vendor commit would make this check
+// tautologically always pass and never actually detect upstream drift.
+const REF = 'main';
 const RAW_BASE = `https://raw.githubusercontent.com/${REPO}/${REF}`;
 
 const FILES: Array<{ local: string; remote: string }> = [
