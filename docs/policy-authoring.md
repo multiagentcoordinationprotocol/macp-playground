@@ -387,10 +387,13 @@ loads anyway, matching this repo's existing warn-and-load design) and it
 is not a proxy for the runtime's own validation: the runtime's
 `RegisterPolicy` enforcement is a **separate, hand-written Rust
 implementation**, not generated from these JSON schemas, and it has
-documented divergence from them (for example, the runtime accepts an
-`n_of_m` quorum type that isn't in the schema's canonical enum, and — at
-least as of this writing — it does not enforce closed objects the way
-these schemas' `additionalProperties: false` does). In practice that
+documented divergence from them (for example, in Quorum mode the runtime
+accepts `count` as a `threshold.type` value even though the schema's
+canonical enum for that field is the closed pair `n_of_m`/`percentage` —
+`count` is a documented runtime-side alias for `n_of_m` that both the
+mode and its evaluator already treat as one; and — at least as of this
+writing — the runtime does not enforce closed objects the way these
+schemas' `additionalProperties: false` does). In practice that
 means this repo's local check is *stricter* than the runtime for #81's
 exact bug class (unknown keys), so a file can pass local load with no
 warning yet still be exactly the shape the runtime would reject, and
