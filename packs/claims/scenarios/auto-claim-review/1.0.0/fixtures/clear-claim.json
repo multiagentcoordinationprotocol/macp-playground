@@ -1,0 +1,8 @@
+{
+  "claimId": "CLM-CLEAR-01",
+  "claimAmount": 5000,
+  "policyAge": 24,
+  "priorClaims": 0,
+  "isHighValuePolicy": false,
+  "incidentSeverity": "minor"
+}

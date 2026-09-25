@@ -1,0 +1,9 @@
+{
+  "applicantId": "APP-WEAK-01",
+  "loanAmount": 25000,
+  "creditScore": 550,
+  "debtToIncomeRatio": 0.55,
+  "employmentYears": 0,
+  "isExistingCustomer": false,
+  "priorDefaults": 2
+}

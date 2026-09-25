@@ -1,0 +1,8 @@
+{
+  "claimId": "CLM-SEVERE-01",
+  "claimAmount": 50000,
+  "policyAge": 2,
+  "priorClaims": 3,
+  "isHighValuePolicy": true,
+  "incidentSeverity": "severe"
+}

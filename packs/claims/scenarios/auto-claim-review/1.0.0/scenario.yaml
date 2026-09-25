@@ -66,11 +66,6 @@ spec:
       priorClaims: "{{ inputs.priorClaims }}"
       isHighValuePolicy: "{{ inputs.isHighValuePolicy }}"
       incidentSeverity: "{{ inputs.incidentSeverity }}"
-      deviceTrustScore: 0.5
-      transactionAmount: "{{ inputs.claimAmount }}"
-      accountAgeDays: "{{ inputs.policyAge }}"
-      isVipCustomer: "{{ inputs.isHighValuePolicy }}"
-      priorChargebacks: "{{ inputs.priorClaims }}"
 
     metadataTemplate:
       demoType: claims-review

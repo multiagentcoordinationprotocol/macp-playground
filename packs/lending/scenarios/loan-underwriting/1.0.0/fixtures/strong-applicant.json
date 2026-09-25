@@ -1,0 +1,9 @@
+{
+  "applicantId": "APP-STRONG-01",
+  "loanAmount": 25000,
+  "creditScore": 720,
+  "debtToIncomeRatio": 0.28,
+  "employmentYears": 6,
+  "isExistingCustomer": true,
+  "priorDefaults": 0
+}
