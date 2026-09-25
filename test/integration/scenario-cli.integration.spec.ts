@@ -237,6 +237,68 @@ spec:
         errSpy.mockRestore();
       }
     });
+
+    // #81 / plan Phase 3: proves lintPack's real-schema-validation check actually rejects a
+    // scenario whose referenced policy fails the vendored rules schema, rather than only
+    // proving the (already schema-clean) production packs pass. Reuses the issue's own
+    // motivating typo (veto_threshhold, extra "h") as the deliberately-broken fixture.
+    it('reports an error-level finding for a scenario whose referenced policy fails rules-schema validation', async () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-lint-broken-policy-'));
+      try {
+        fs.mkdirSync(path.join(tmp, 'policies'), { recursive: true });
+        fs.writeFileSync(
+          path.join(tmp, 'policies/policy.lintprobe.broken.json'),
+          JSON.stringify({
+            policy_id: 'policy.lintprobe.broken',
+            mode: 'macp.mode.decision.v1',
+            schema_version: 3,
+            description: 'Deliberately broken fixture for the scenario-cli lint negative test (#81)',
+            rules: {
+              voting: { algorithm: 'none' },
+              objection_handling: { critical_severity_vetoes: false, veto_threshhold: 3 },
+              evaluation: { minimum_confidence: 0, required_before_voting: false },
+              commitment: { authority: 'initiator_only', require_vote_quorum: false, designated_roles: [] }
+            }
+          })
+        );
+
+        fs.mkdirSync(path.join(tmp, 'packs/lintprobe/scenarios/probe/1.0.0'), { recursive: true });
+        fs.writeFileSync(
+          path.join(tmp, 'packs/lintprobe/pack.yaml'),
+          'apiVersion: scenarios.macp.dev/v1\nkind: ScenarioPack\nmetadata: { slug: lintprobe, name: Lint Probe }\n'
+        );
+        fs.writeFileSync(
+          path.join(tmp, 'packs/lintprobe/scenarios/probe/1.0.0/scenario.yaml'),
+          `apiVersion: scenarios.macp.dev/v1
+kind: ScenarioVersion
+metadata: { pack: lintprobe, scenario: probe, version: 1.0.0, name: Probe }
+spec:
+  inputs: { schema: { type: object } }
+  launch:
+    modeName: macp.mode.decision.v1
+    modeVersion: '1'
+    configurationVersion: c
+    ttlMs: 1000
+    policyVersion: policy.lintprobe.broken
+`
+        );
+
+        const code = await runLint({
+          target: path.join(tmp, 'packs'),
+          packsRoot: path.join(tmp, 'packs')
+        });
+
+        expect(code).toBe(1);
+        const errorLines = errSpy.mock.calls.map((call) => String(call[0]));
+        expect(errorLines.some((line) => line.includes('FAIL') && line.includes('veto_threshhold'))).toBe(true);
+      } finally {
+        logSpy.mockRestore();
+        errSpy.mockRestore();
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('end-to-end via spawned process', () => {

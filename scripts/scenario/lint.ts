@@ -3,6 +3,8 @@ import * as path from 'node:path';
 import { loadYamlWithIncludes } from '../../src/registry/include-resolver';
 import { ScenarioVersionFile, PackFile, ScenarioTemplateFile } from '../../src/contracts/registry';
 import { ExampleAgentCatalogService } from '../../src/example-agents/example-agent-catalog.service';
+import { PolicyDefinition } from '../../src/contracts/policy';
+import { PolicyRulesValidator } from '../../src/policy/policy-rules-validator';
 
 export interface LintOptions {
   target: string;
@@ -86,7 +88,14 @@ function gatherAllIncludes(versionDir: string): Set<string> {
   return hits;
 }
 
-function lintPack(packDir: string, packsRoot: string, knownAgentRefs: Set<string>, knownPolicies: Set<string>): LintFinding[] {
+function lintPack(
+  packDir: string,
+  packsRoot: string,
+  knownAgentRefs: Set<string>,
+  knownPolicies: Map<string, PolicyDefinition>,
+  rulesValidator: PolicyRulesValidator,
+  validatedPolicyIds: Set<string>
+): LintFinding[] {
   const findings: LintFinding[] = [];
   const packYaml = path.join(packDir, 'pack.yaml');
   let pack: PackFile;
@@ -127,6 +136,27 @@ function lintPack(packDir: string, packsRoot: string, knownAgentRefs: Set<string
     const policyVersion = scenario?.spec?.launch?.policyVersion;
     if (policyVersion && policyVersion !== 'policy.default' && !knownPolicies.has(policyVersion)) {
       findings.push({ level: 'warn', file: scenarioYaml, message: `policyVersion "${policyVersion}" not found in /${POLICIES_DIR_NAME}` });
+    }
+
+    // policyVersion rules-schema conformance (#81) — runs against policy.default.json too,
+    // even though the existence check above skips it (that check exists because
+    // policy.default is a reserved runtime built-in, not because its file's shape is exempt
+    // from validation). Deduped per policy_id across the whole lint run (via
+    // validatedPolicyIds, shared across all lintPack() calls) so a policy referenced by many
+    // scenarios/packs is only checked and reported once.
+    if (policyVersion) {
+      const referencedPolicy = knownPolicies.get(policyVersion);
+      if (referencedPolicy && !validatedPolicyIds.has(policyVersion)) {
+        validatedPolicyIds.add(policyVersion);
+        const schemaErrors = rulesValidator.validateRules(referencedPolicy.mode, referencedPolicy.rules);
+        for (const schemaError of schemaErrors) {
+          findings.push({
+            level: 'error',
+            file: scenarioYaml,
+            message: `policyVersion "${policyVersion}" fails rules-schema validation: ${schemaError}`
+          });
+        }
+      }
     }
 
     // agentRef existence
@@ -177,15 +207,15 @@ function lintPack(packDir: string, packsRoot: string, knownAgentRefs: Set<string
   return findings;
 }
 
-function loadKnownPolicies(repoRoot: string): Set<string> {
+function loadKnownPolicies(repoRoot: string): Map<string, PolicyDefinition> {
   const dir = path.join(repoRoot, POLICIES_DIR_NAME);
-  const out = new Set<string>();
+  const out = new Map<string, PolicyDefinition>();
   if (!fs.existsSync(dir)) return out;
   for (const f of fs.readdirSync(dir)) {
     if (!f.endsWith('.json')) continue;
     try {
-      const json = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8')) as { policy_id?: string };
-      if (json.policy_id) out.add(json.policy_id);
+      const json = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8')) as PolicyDefinition;
+      if (json.policy_id) out.set(json.policy_id, json);
     } catch {
       // ignore
     }
@@ -200,6 +230,8 @@ export async function runLint(opts: LintOptions): Promise<number> {
   const catalog = new ExampleAgentCatalogService();
   const knownAgentRefs = new Set(catalog.list().map((a) => a.agentRef));
   const knownPolicies = loadKnownPolicies(repoRoot);
+  const rulesValidator = new PolicyRulesValidator();
+  const validatedPolicyIds = new Set<string>();
 
   const packDirs = listPackDirs(target);
   if (packDirs.length === 0) {
@@ -211,7 +243,7 @@ export async function runLint(opts: LintOptions): Promise<number> {
   let errors = 0;
   let warns = 0;
   for (const packDir of packDirs) {
-    const findings = lintPack(packDir, packsRoot, knownAgentRefs, knownPolicies);
+    const findings = lintPack(packDir, packsRoot, knownAgentRefs, knownPolicies, rulesValidator, validatedPolicyIds);
     for (const f of findings) {
       const tag = f.level === 'error' ? 'FAIL' : 'WARN';
       const stream = f.level === 'error' ? console.error : console.log;
