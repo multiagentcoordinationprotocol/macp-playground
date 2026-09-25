@@ -5,14 +5,20 @@ export interface PolicyDefinition {
   description: string;
   rules: {
     voting: {
-      algorithm: 'none' | 'majority' | 'supermajority' | 'unanimous' | 'weighted';
+      algorithm: 'none' | 'majority' | 'supermajority' | 'unanimous' | 'weighted' | 'plurality';
       threshold?: number;
       quorum?: { type: 'count' | 'percentage'; value: number };
       weights?: Record<string, number>;
     };
     objection_handling: {
       critical_severity_vetoes: boolean;
-      veto_threshold: number;
+      /**
+       * Optional upstream (schemas/policy/decision-rules.schema.json): defaults to 1,
+       * only read when critical_severity_vetoes is true. Omit rather than set to 0 when
+       * vetoes are off — see #81 / policy-rule-schema-validation.md.
+       */
+      veto_threshold?: number;
+      critical_objection_action?: 'deny' | 'finalize_decline' | 'hold';
     };
     evaluation: {
       minimum_confidence: number;
@@ -22,6 +28,7 @@ export interface PolicyDefinition {
       authority: 'initiator_only' | 'designated_role' | 'any_participant';
       require_vote_quorum: boolean;
       designated_roles: string[];
+      allow_decline_over_approval?: boolean;
     };
   };
 }

@@ -31,6 +31,35 @@ rule-level validation errors) see the canonical runtime doc linked
 above. The macp-playground does not re-document or alter any of those
 semantics — it just registers whatever descriptors live on disk.
 
+### Shape validation: closed keys, annotations, and `voting.weights`
+
+Every level of a policy's `rules` object is a **closed schema** —
+`additionalProperties: false` at every nesting level (`voting`,
+`voting.quorum`, `objection_handling`, `evaluation`, `commitment`). An
+unrecognized key anywhere (a typo like `veto_threshhold`) is rejected, not
+silently ignored. This repo validates every shipped `policies/*.json` file
+against the real vendored schema at `schemas/policy/` (see its `README.md`
+for provenance) — both as a hard CI gate
+(`src/policy/policies-on-disk.spec.ts`) and via `npm run scenario:lint`
+during authoring.
+
+Two exceptions to the closed-key rule:
+
+- **Annotation keys** — any key matching `^[_$]` (e.g. `$comment`, `_note`)
+  is legal at every nesting level, for documenting a rule block inline
+  without the schema rejecting it.
+- **`voting.weights`** — its **keys** are open (they're participant IDs,
+  not fixed field names), but its **values** are still constrained
+  (greater than `0`, no zero or negative weights) and the map itself
+  requires **at least one entry**, unconditionally, at every
+  `voting.algorithm` — not only `weighted`. A weights map is meaningless
+  outside the `weighted` algorithm, so an empty or zero-valued one is
+  treated as an authoring error wherever it appears, not just there.
+
+`voting.algorithm` also accepts `plurality` (most votes wins, no majority
+required) alongside `none`/`majority`/`supermajority`/`unanimous`/`weighted`
+— not yet used by any policy shipped in this repo, but a legal value.
+
 ## Included Policies
 
 These are the policies shipped in `policies/` for the demo scenarios:
@@ -205,6 +234,10 @@ policy with a real voting algorithm, independent of `schema_version`. `schema_ve
 the spec-canonical version that additionally carries the optional decline-gating
 fields (`objection_handling.critical_objection_action`,
 `commitment.allow_decline_over_approval`); the runtime accepts `1`, `2`, and `3`.
+`schema_version` is a **closed enum** — `{1, 2, 3}` and nothing else — enforced both by
+the runtime and, as of #81, by this repo's local descriptor validation
+(`src/policy/policy-rules-validator.ts`); a value like `4` is rejected at both layers,
+not merely unrecognized.
 
 > **`schema_version: 3` is the current recommended value for new policies.**
 > Only **one** evaluator branch is actually gated on `schema_version` — the
@@ -337,12 +370,35 @@ and the auth-service logs.
 
 ## Local validation warnings
 
-`PolicyLoaderService` runs a light structural check on load and warns
+`PolicyLoaderService` runs a structural check on load and warns
 (non-blocking) for missing `policy_id`, out-of-range values, or
-obviously invalid combinations. The **authoritative** schema validation
-happens at the runtime during `RegisterPolicy` — if a descriptor passes
-local load but fails at the runtime, the registrar logs
-`policy_register_exception` with the runtime's `INVALID_POLICY_DEFINITION`
-reason. See
+obviously invalid combinations. As of #81, this check includes real
+**shape** conformance against the vendored upstream rule schemas
+(`schemas/policy/`, see its `README.md` for provenance) — the canonical
+JSON Schema definitions published in the spec repo — so an unknown key
+or an empty `designated_roles` under `designated_role` authority is now
+caught locally, with a logged warning, before registration is even
+attempted. (`schema_version`'s allowed range is checked separately by
+this loader's own pre-existing bound; the schema's closed `{1, 2, 3}`
+enum is enforced by the CI gate in `src/policy/policies-on-disk.spec.ts`,
+which validates each shipped file's full descriptor, not by this
+warn-on-load path.) This local check is still non-blocking (a bad file
+loads anyway, matching this repo's existing warn-and-load design) and it
+is not a proxy for the runtime's own validation: the runtime's
+`RegisterPolicy` enforcement is a **separate, hand-written Rust
+implementation**, not generated from these JSON schemas, and it has
+documented divergence from them (for example, in Quorum mode the runtime
+accepts `count` as a `threshold.type` value even though the schema's
+canonical enum for that field is the closed pair `n_of_m`/`percentage` —
+`count` is a documented runtime-side alias for `n_of_m` that both the
+mode and its evaluator already treat as one; and — at least as of this
+writing — the runtime does not enforce closed objects the way these
+schemas' `additionalProperties: false` does). In practice that
+means this repo's local check is *stricter* than the runtime for #81's
+exact bug class (unknown keys), so a file can pass local load with no
+warning yet still be exactly the shape the runtime would reject, and
+vice versa. If a descriptor passes local load but fails at the runtime,
+the registrar logs `policy_register_exception` with the runtime's
+`INVALID_POLICY_DEFINITION` reason. See
 [`macp-runtime/docs/policy.md` § Registering a policy](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md#registering-a-policy)
-for the validation rules the runtime enforces.
+for the validation rules the runtime actually enforces.

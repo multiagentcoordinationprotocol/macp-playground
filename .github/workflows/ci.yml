@@ -33,6 +33,9 @@ jobs:
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
         continue-on-error: true
+      - name: Check vendored policy schemas for drift
+        run: npm run schemas:sync
+        continue-on-error: true
 
   build:
     runs-on: ubuntu-latest

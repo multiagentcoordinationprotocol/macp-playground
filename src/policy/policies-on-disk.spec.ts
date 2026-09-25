@@ -13,6 +13,7 @@ import * as path from 'node:path';
 import * as yaml from 'js-yaml';
 import { PolicyDefinition } from '../contracts/policy';
 import { PolicyLoaderService } from './policy-loader.service';
+import { PolicyRulesValidator } from './policy-rules-validator';
 
 const POLICIES_DIR = path.resolve(__dirname, '../../policies');
 const PARTICIPANTS_DIR = path.resolve(__dirname, '../../packs/_shared/participants');
@@ -102,5 +103,32 @@ describe('policies/*.json (on disk)', () => {
     for (const policy of policies) {
       expect(service.validatePolicy(policy)).toEqual([]);
     }
+  });
+
+  describe('conforms to the real upstream rule schemas (#81)', () => {
+    // The hard CI gate for #81: PolicyLoaderService.validatePolicy() above is warn-and-load,
+    // never fails a test on its own. This block calls PolicyRulesValidator directly, keyed by
+    // each policy's own `mode` (including "*"), so a shape regression like the issue's own
+    // `veto_threshhold` typo — or the `veto_threshold: 0` bug this repo actually shipped —
+    // turns red here rather than loading silently. Sanity-checked during implementation by
+    // temporarily reintroducing `veto_threshold: 0` into one shipped file and confirming this
+    // block goes red, then reverting — not committed as a separate test since it would just be
+    // testing PolicyRulesValidator's own already-covered behavior (policy-rules-validator.spec.ts).
+    const validator = new PolicyRulesValidator();
+
+    it.each(policies.map((p) => [p.policy_id, p] as const))('%s rules conform to their mode schema', (_id, policy) => {
+      expect(validator.validateRules(policy.mode, policy.rules)).toEqual([]);
+    });
+
+    it.each(policies.map((p) => [p.policy_id, p] as const))('%s conforms to the descriptor schema', (_id, policy) => {
+      expect(validator.validateDescriptor(policy)).toEqual([]);
+    });
+
+    it("covers policy.default.json's wildcard mode explicitly, not just incidentally", () => {
+      const wildcardPolicies = policies.filter((p) => p.mode === '*');
+      expect(wildcardPolicies).toHaveLength(1);
+      expect(wildcardPolicies[0].policy_id).toBe('policy.default');
+      expect(validator.validateRules('*', wildcardPolicies[0].rules)).toEqual([]);
+    });
   });
 });
