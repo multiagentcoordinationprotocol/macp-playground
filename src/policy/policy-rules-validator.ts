@@ -47,11 +47,9 @@ function formatErrors(errors: ErrorObject[] | null | undefined): string[] {
 export class PolicyRulesValidator {
   private readonly ruleValidators = new Map<string, ValidateFunction>();
   private readonly descriptorValidator: ValidateFunction;
-  // Top-level rules key (e.g. "commitment", "voting") -> the sub-schema validators of
-  // every mode that recognizes it. Built for wildcard-mode validation — see
-  // validateWildcardRules(). None of the 5 vendored schemas use $ref/$defs, so slicing
-  // out a `properties[key]` sub-schema and compiling it standalone is safe.
-  private readonly topLevelKeyOwners = new Map<string, ValidateFunction[]>();
+  // Top-level rules key (e.g. "commitment", "voting") -> every mode whose schema
+  // declares it. Built for wildcard-mode validation — see validateWildcardRules().
+  private readonly topLevelKeyOwners = new Map<string, string[]>();
 
   constructor() {
     // strict: false — the vendored schemas' conditional (if/then) arms trip ajv's
@@ -70,9 +68,9 @@ export class PolicyRulesValidator {
       const schema = loadSchema(schemasDir, filename) as { properties?: Record<string, object> };
       this.ruleValidators.set(mode, ajv.compile(schema));
 
-      for (const [key, subSchema] of Object.entries(schema.properties ?? {})) {
+      for (const key of Object.keys(schema.properties ?? {})) {
         const owners = this.topLevelKeyOwners.get(key) ?? [];
-        owners.push(ajv.compile(subSchema));
+        owners.push(mode);
         this.topLevelKeyOwners.set(key, owners);
       }
     }
@@ -112,13 +110,34 @@ export class PolicyRulesValidator {
    * policy-rules-validator.spec.ts's own `broken`/`veto_threshhold` case).
    *
    * So this validates **per top-level key**, not per whole object: each key present in
-   * `rules` is checked against every mode's sub-schema that declares it (topLevelKeyOwners,
+   * `rules` is checked against every mode whose schema declares it (topLevelKeyOwners,
    * built at construction time), and passes if it's valid against *at least one* of them —
    * "legitimate under some mode this wildcard could bind to." A key no schema declares at
-   * all is a real, unconditional error. This also naturally reproduces real typo-catching
-   * inside a key only one mode owns (e.g. `objection_handling.veto_threshhold`): since
-   * only Decision declares `objection_handling`, that's the only candidate, and Decision's
-   * own sub-schema still rejects the typo.
+   * all is a real, unconditional error.
+   *
+   * Each candidate mode's check runs the key's value through that mode's **full** rules
+   * schema — not an isolated `properties[key]` sub-schema — wrapped as a sparse
+   * single-key object `{ [key]: value }`. A first version of this method extracted and
+   * compiled just `properties[key]` standalone, which silently dropped every root-level
+   * `allOf`/`if`/`then` cross-field conditional referencing that key (all 5 schemas gate
+   * `commitment.authority === 'designated_role'` requiring non-empty `designated_roles`
+   * this way, and decision's schema gates `voting.algorithm` similarly) — a real fail-open
+   * regression caught by a `/ship` verification gate before this landed. Running the full
+   * schema against a sparse object is safe specifically because every conditional in these
+   * 5 schemas' `allOf` blocks requires its trigger key's presence (`if.required`) — so a
+   * conditional about some OTHER, absent key never spuriously fires (confirmed against
+   * every `allOf` block in schemas/policy/*.schema.json), while a conditional about the one
+   * key we *did* include still correctly evaluates. This also naturally reproduces real
+   * typo-catching inside a key only one mode owns (e.g. `objection_handling.veto_threshhold`):
+   * since only Decision declares `objection_handling`, that's the only candidate, and
+   * Decision's own full schema still rejects the typo.
+   *
+   * Known limitation: because each key is validated in its own single-key sparse object,
+   * a genuinely cross-key conditional (an `allOf` whose `if.required` names *two or more*
+   * top-level keys at once) would never fire here — no two keys ever co-occur in the same
+   * sparse object. None of the 5 vendored schemas has such a conditional today (every
+   * `allOf` block is single-key-gated, confirmed by a `/ship` verification round), so this
+   * is not a live defect — but re-check this comment if a future schema revision adds one.
    */
   private validateWildcardRules(rules: unknown): string[] {
     if (typeof rules !== 'object' || rules === null || Array.isArray(rules)) {
@@ -130,25 +149,30 @@ export class PolicyRulesValidator {
     }
 
     const errors: string[] = [];
-    for (const key of Object.keys(rules as Record<string, unknown>)) {
+    for (const [key, value] of Object.entries(rules as Record<string, unknown>)) {
       const owners = this.topLevelKeyOwners.get(key);
       if (!owners || owners.length === 0) {
         errors.push(`(root): unrecognized key "${key}"`);
         continue;
       }
 
-      const value = (rules as Record<string, unknown>)[key];
-      const acceptedByAtLeastOneMode = owners.some((validate) => validate(value));
-      if (acceptedByAtLeastOneMode) {
-        continue;
+      const sparseRules = { [key]: value };
+      let acceptedByAtLeastOneMode = false;
+      let firstFailureErrors: ErrorObject[] | null | undefined;
+      for (const mode of owners) {
+        const validate = this.ruleValidators.get(mode)!;
+        if (validate(sparseRules)) {
+          acceptedByAtLeastOneMode = true;
+          break;
+        }
+        firstFailureErrors ??= validate.errors;
       }
 
-      // No candidate mode accepted this key's value — report the first owner's errors
-      // (deterministic: MODE_SCHEMA_FILES' declaration order), with instancePath rebased
-      // from the sub-schema's root onto this key's actual position in `rules`.
-      const firstOwnerErrors = owners[0].errors ?? [];
-      const rebased = firstOwnerErrors.map((error) => ({ ...error, instancePath: `/${key}${error.instancePath}` }));
-      errors.push(...formatErrors(rebased));
+      if (!acceptedByAtLeastOneMode) {
+        // instancePaths already point at the key's real position (e.g. "/commitment/authority")
+        // since we validated it in place inside a sparse rules object, not in isolation.
+        errors.push(...formatErrors(firstFailureErrors));
+      }
     }
     return errors;
   }

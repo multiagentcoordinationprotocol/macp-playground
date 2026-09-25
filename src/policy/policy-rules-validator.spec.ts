@@ -164,6 +164,35 @@ describe('PolicyRulesValidator', () => {
     expect(errors.some((e) => e.includes('totally_made_up_section'))).toBe(true);
   });
 
+  it('AC-reconcile-2: a wildcard policy still enforces a cross-field allOf conditional on `commitment`, shared by all 5 modes', () => {
+    // Regression test for a real defect a /ship gate caught in a first attempt at the
+    // wildcard fix: validating just `properties.commitment` in isolation (rather than the
+    // full owning schema) silently dropped this exact conditional — the same
+    // designated_role/designated_roles check issue #81 itself was built to enforce.
+    const withUnsatisfiableAuthority = {
+      ...GOOD_DECISION_RULES,
+      commitment: { authority: 'designated_role', designated_roles: [] }
+    };
+    expect(validator.validateRules('*', withUnsatisfiableAuthority).length).toBeGreaterThan(0);
+
+    const withSatisfiedAuthority = {
+      ...GOOD_DECISION_RULES,
+      commitment: { authority: 'designated_role', designated_roles: ['risk-agent'] }
+    };
+    expect(validator.validateRules('*', withSatisfiedAuthority)).toEqual([]);
+  });
+
+  it('AC-reconcile-3: a wildcard policy still enforces a cross-field allOf conditional on `voting`, owned by decision alone', () => {
+    // Same defect class as AC-reconcile-2, but for a key only one mode declares — proves
+    // this isn't only a shared-key problem: even a single-owner key's own conditionals
+    // (decision-rules.schema.json's allOf) were dropped by the isolated-sub-schema design.
+    const weightedWithoutWeights = { ...GOOD_DECISION_RULES, voting: { algorithm: 'weighted' } };
+    expect(validator.validateRules('*', weightedWithoutWeights).length).toBeGreaterThan(0);
+
+    const supermajorityWithoutThreshold = { ...GOOD_DECISION_RULES, voting: { algorithm: 'supermajority' } };
+    expect(validator.validateRules('*', supermajorityWithoutThreshold).length).toBeGreaterThan(0);
+  });
+
   it('returns an explicit "unknown mode" error rather than silently passing for an unrecognized mode', () => {
     const errors = validator.validateRules('macp.mode.made-up.v1', GOOD_DECISION_RULES);
     expect(errors.length).toBeGreaterThan(0);
