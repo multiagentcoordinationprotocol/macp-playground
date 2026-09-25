@@ -24,7 +24,8 @@
     "scenario:validate": "ts-node scripts/scenario.ts validate",
     "scenario:dry-run": "ts-node scripts/scenario.ts dry-run",
     "scenario:new": "ts-node scripts/scenario.ts new",
-    "scenario:lint": "ts-node scripts/scenario.ts lint"
+    "scenario:lint": "ts-node scripts/scenario.ts lint",
+    "schemas:sync": "ts-node scripts/schemas-sync.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.28",

@@ -34,6 +34,7 @@ COPY --from=builder /app/dist dist/
 COPY packs/ packs/
 COPY agents/ agents/
 COPY policies/ policies/
+COPY schemas/ schemas/
 
 RUN mkdir -p /home/appuser/.local/share && chown -R appuser:appgroup /home/appuser
 

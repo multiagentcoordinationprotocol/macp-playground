@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://macp.dev/schemas/macp-policy-descriptor.schema.json",
+  "title": "MACP Policy Descriptor",
+  "description": "Validates a PolicyDescriptor document in JSON form. See RFC-MACP-0012.",
+  "type": "object",
+  "properties": {
+    "policy_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique policy identifier."
+    },
+    "mode": {
+      "type": "string",
+      "description": "Mode identifier this policy applies to, or '*' for mode-agnostic."
+    },
+    "schema_version": {
+      "type": "integer",
+      "enum": [1, 2, 3],
+      "description": "Version of the rule schema used (1, 2, or 3). Version 2 adds the Decision Mode decline-gating parameters; that bump is additive and version 1 policies remain valid. Version 3 is SEMANTIC, not additive: it changes the empty-tally rule so voting algorithms other than 'none' fail when no decisive vote (for 'weighted', no decisive weight) has been cast. Versions 1-2 retain the legacy require_vote_quorum-gated rule so stored sessions replay identically. See RFC-MACP-0012 Sections 4.1 and 8."
+    },
+    "rules": {
+      "type": "object",
+      "description": "Mode-specific governance rules. In protobuf, this is a JSON string field."
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description of the policy."
+    },
+    "registered_at_unix_ms": {
+      "type": "integer",
+      "description": "Unix epoch milliseconds when registered. Set by runtime."
+    }
+  },
+  "required": ["policy_id", "mode", "schema_version", "rules", "description"]
+}
