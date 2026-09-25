@@ -1,6 +1,14 @@
 """Tests for the LangChain worker's pure kickoff/result mappers."""
 
-from langchain_worker.mappers import map_kickoff_to_inputs, map_result_to_macp_messages
+import logging
+
+from langchain_worker.chain import build_agent
+from langchain_worker.mappers import (
+    detect_domain,
+    extract_agent_metadata,
+    map_kickoff_to_inputs,
+    map_result_to_macp_messages,
+)
 
 
 class TestMapKickoffToInputs:
@@ -97,3 +105,60 @@ class TestMapResultToMacpMessages:
         )
 
         assert messages[0]['payloadEnvelope']['proto']['value']['confidence'] == 0.75
+
+
+class TestDetectDomain:
+    def test_maps_known_pack_prefixes(self):
+        assert detect_domain({'scenario_ref': 'lending/loan-underwriting@1.0.0'}) == 'lending'
+        assert detect_domain({'scenario_ref': 'claims/auto-claim-review@1.0.0'}) == 'claims'
+        assert detect_domain({'scenario_ref': 'fraud/high-value-new-device@1.0.0'}) == 'fraud'
+
+    def test_defaults_to_fraud_and_warns_on_missing_or_malformed_ref(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            assert detect_domain({}) == 'fraud'
+        assert 'defaulting to fraud' in caplog.text
+
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            assert detect_domain({'scenario_ref': 'unknown-pack/some-scenario@1.0.0'}) == 'fraud'
+        assert 'defaulting to fraud' in caplog.text
+
+
+class TestExtractAgentMetadata:
+    def test_reads_scenario_ref_and_role(self):
+        meta = extract_agent_metadata({'scenario_ref': 'claims/auto-claim-review@1.0.0', 'role': 'claims-validator'})
+        assert meta == {'scenario_ref': 'claims/auto-claim-review@1.0.0', 'role': 'claims-validator'}
+
+    def test_defaults_for_missing_keys(self):
+        assert extract_agent_metadata({}) == {'scenario_ref': '', 'role': ''}
+        assert extract_agent_metadata(None) == {'scenario_ref': '', 'role': ''}
+
+
+class TestFraudCharacterization:
+    """Pins today's exact FallbackChain output (langchain_core not installed in
+    CI) as a regression baseline BEFORE any scoring logic is extracted into
+    mappers.py (plans/example-agent-domain-scoring.md Phase 2)."""
+
+    def test_approve_high_on_vip_trusted_profile(self):
+        inputs = map_kickoff_to_inputs(
+            {'isVipCustomer': True, 'accountAgeDays': 30, 'transactionAmount': 1000}
+        )
+        output = build_agent().invoke(inputs)
+        assert output['recommendation'] == 'APPROVE'
+        assert output['confidence'] == 0.88
+
+    def test_review_on_high_amount(self):
+        inputs = map_kickoff_to_inputs(
+            {'isVipCustomer': False, 'accountAgeDays': 30, 'transactionAmount': 6000}
+        )
+        output = build_agent().invoke(inputs)
+        assert output['recommendation'] == 'REVIEW'
+        assert output['confidence'] == 0.73
+
+    def test_approve_standard_on_ordinary_profile(self):
+        inputs = map_kickoff_to_inputs(
+            {'isVipCustomer': False, 'accountAgeDays': 10, 'transactionAmount': 1000}
+        )
+        output = build_agent().invoke(inputs)
+        assert output['recommendation'] == 'APPROVE'
+        assert output['confidence'] == 0.78

@@ -1,6 +1,14 @@
 """Tests for the CrewAI worker's pure kickoff/result mappers."""
 
-from crewai_worker.mappers import map_crew_result_to_macp_messages, map_kickoff_to_crew_inputs
+import logging
+
+from crewai_worker.crew import build_crew
+from crewai_worker.mappers import (
+    detect_domain,
+    extract_agent_metadata,
+    map_crew_result_to_macp_messages,
+    map_kickoff_to_crew_inputs,
+)
 
 
 class TestMapKickoffToCrewInputs:
@@ -108,3 +116,54 @@ class TestMapCrewResultToMacpMessages:
         value = message['payloadEnvelope']['proto']['value']
         assert value['recommendation'] == 'REVIEW'
         assert value['confidence'] == 0.76
+
+
+class TestDetectDomain:
+    def test_maps_known_pack_prefixes(self):
+        assert detect_domain({'scenario_ref': 'lending/loan-underwriting@1.0.0'}) == 'lending'
+        assert detect_domain({'scenario_ref': 'claims/auto-claim-review@1.0.0'}) == 'claims'
+        assert detect_domain({'scenario_ref': 'fraud/high-value-new-device@1.0.0'}) == 'fraud'
+
+    def test_defaults_to_fraud_and_warns_on_missing_or_malformed_ref(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            assert detect_domain({}) == 'fraud'
+        assert 'defaulting to fraud' in caplog.text
+
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            assert detect_domain({'scenario_ref': 'unknown-pack/some-scenario@1.0.0'}) == 'fraud'
+        assert 'defaulting to fraud' in caplog.text
+
+
+class TestExtractAgentMetadata:
+    def test_reads_scenario_ref_and_role(self):
+        meta = extract_agent_metadata(
+            {'scenario_ref': 'fraud/high-value-new-device@1.0.0', 'role': 'compliance-reviewer'}
+        )
+        assert meta == {'scenario_ref': 'fraud/high-value-new-device@1.0.0', 'role': 'compliance-reviewer'}
+
+    def test_defaults_for_missing_keys(self):
+        assert extract_agent_metadata({}) == {'scenario_ref': '', 'role': ''}
+        assert extract_agent_metadata(None) == {'scenario_ref': '', 'role': ''}
+
+
+class TestFraudCharacterization:
+    """Pins today's exact FallbackCrew output (crewai not installed in CI) as a
+    regression baseline BEFORE any scoring logic is extracted into mappers.py
+    (plans/example-agent-domain-scoring.md Phase 2)."""
+
+    def test_objection_block_on_critical_signals(self):
+        inputs = map_kickoff_to_crew_inputs({'deviceTrustScore': 0.05, 'priorChargebacks': 0})
+        result = build_crew(inputs).kickoff()
+        assert result['message_type'] == 'Objection'
+        assert result['severity'] == 'high'
+        assert result['recommendation'] == 'BLOCK'
+
+    def test_review_on_clean_signals(self):
+        inputs = map_kickoff_to_crew_inputs(
+            {'deviceTrustScore': 0.5, 'priorChargebacks': 0, 'transactionAmount': 100, 'accountAgeDays': 100}
+        )
+        result = build_crew(inputs).kickoff()
+        assert result['message_type'] == 'Evaluation'
+        assert result['recommendation'] == 'REVIEW'
+        assert result['confidence'] == 0.76

@@ -184,6 +184,26 @@ describe('PolicyStrategy', () => {
       const decision = strategy.decide(signals, {});
       expect(decision.action).toBe('step_up');
     });
+
+    it('with 3 specialists, 2 approvals + 1 non-qualifying review falls just short of 67% (2/3 = 66.67%)', () => {
+      const signals = signalMap(
+        signal('a', 'Evaluation', { recommendation: 'APPROVE' }),
+        signal('b', 'Evaluation', { recommendation: 'APPROVE' }),
+        signal('c', 'Evaluation', { recommendation: 'REVIEW' })
+      );
+      const decision = strategy.decide(signals, {});
+      expect(decision.action).toBe('step_up');
+    });
+
+    it('with 3 specialists, all 3 approvals meets 67% threshold (3/3 = 100%)', () => {
+      const signals = signalMap(
+        signal('a', 'Evaluation', { recommendation: 'APPROVE' }),
+        signal('b', 'Evaluation', { recommendation: 'APPROVE' }),
+        signal('c', 'Evaluation', { recommendation: 'APPROVE' })
+      );
+      const decision = strategy.decide(signals, {});
+      expect(decision.action).toBe('approve');
+    });
   });
 
   describe('createPolicyStrategy with unanimous hints', () => {

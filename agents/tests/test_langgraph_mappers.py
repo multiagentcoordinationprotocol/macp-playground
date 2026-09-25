@@ -1,6 +1,14 @@
 """Tests for the LangGraph worker's pure kickoff/state mappers."""
 
-from langgraph_worker.mappers import map_kickoff_to_state, map_state_to_macp_messages
+import logging
+
+from langgraph_worker.graph import build_graph
+from langgraph_worker.mappers import (
+    detect_domain,
+    extract_agent_metadata,
+    map_kickoff_to_state,
+    map_state_to_macp_messages,
+)
 
 FULL_CONTEXT = {
     'deviceTrustScore': 0.12,
@@ -98,3 +106,61 @@ class TestMapStateToMacpMessages:
         assert value['confidence'] == 0.5
         assert value['reason'] == ''
         assert messages[0]['metadata']['signals'] == []
+
+
+class TestDetectDomain:
+    def test_maps_known_pack_prefixes(self):
+        assert detect_domain({'scenario_ref': 'lending/loan-underwriting@1.0.0'}) == 'lending'
+        assert detect_domain({'scenario_ref': 'claims/auto-claim-review@1.0.0'}) == 'claims'
+        assert detect_domain({'scenario_ref': 'fraud/high-value-new-device@1.0.0'}) == 'fraud'
+
+    def test_defaults_to_fraud_and_warns_on_missing_or_malformed_ref(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            assert detect_domain({}) == 'fraud'
+        assert 'defaulting to fraud' in caplog.text
+
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            assert detect_domain({'scenario_ref': 'no-slash-here'}) == 'fraud'
+        assert 'defaulting to fraud' in caplog.text
+
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            assert detect_domain({'scenario_ref': 'unknown-pack/some-scenario@1.0.0'}) == 'fraud'
+        assert 'defaulting to fraud' in caplog.text
+
+
+class TestExtractAgentMetadata:
+    def test_reads_scenario_ref_and_role(self):
+        meta = extract_agent_metadata({'scenario_ref': 'lending/loan-underwriting@1.0.0', 'role': 'credit-analyst'})
+        assert meta == {'scenario_ref': 'lending/loan-underwriting@1.0.0', 'role': 'credit-analyst'}
+
+    def test_defaults_for_missing_keys(self):
+        assert extract_agent_metadata({}) == {'scenario_ref': '', 'role': ''}
+        assert extract_agent_metadata(None) == {'scenario_ref': '', 'role': ''}
+
+
+class TestFraudCharacterization:
+    """Pins today's exact FallbackGraph output (langgraph not installed in CI —
+    see agents/requirements-dev.txt) as a regression baseline BEFORE any scoring
+    logic is extracted into mappers.py (plans/example-agent-domain-scoring.md
+    Phase 2). If these break during the Phase 2 refactor, the refactor changed
+    fraud behavior, which Phase 2 explicitly must not do."""
+
+    def test_block_on_critical_device_trust(self):
+        state = map_kickoff_to_state({'deviceTrustScore': 0.05, 'priorChargebacks': 0})
+        output = build_graph().invoke(state)
+        assert output['recommendation'] == 'BLOCK'
+        assert output['confidence'] == 0.94
+
+    def test_review_on_low_device_trust(self):
+        state = map_kickoff_to_state({'deviceTrustScore': 0.15, 'priorChargebacks': 0})
+        output = build_graph().invoke(state)
+        assert output['recommendation'] == 'REVIEW'
+        assert output['confidence'] == 0.84
+
+    def test_approve_on_clean_signals(self):
+        state = map_kickoff_to_state({'deviceTrustScore': 0.5, 'priorChargebacks': 0})
+        output = build_graph().invoke(state)
+        assert output['recommendation'] == 'APPROVE'
+        assert output['confidence'] == 0.72
