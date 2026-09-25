@@ -16,7 +16,7 @@ from macp_sdk.errors import MacpAckError
 from macp.v1 import core_pb2
 
 from graph import build_graph
-from mappers import map_kickoff_to_state
+from mappers import extract_agent_metadata, map_kickoff_to_state
 
 logger = logging.getLogger("macp.agent")
 
@@ -112,6 +112,15 @@ def _load_session_context() -> dict:
     return (data.get("metadata") or {}).get("session_context") or {}
 
 
+def _load_metadata() -> dict:
+    path = os.environ.get("MACP_BOOTSTRAP_FILE", "")
+    if not path:
+        return {}
+    with open(path) as f:
+        data = json.load(f)
+    return data.get("metadata") or {}
+
+
 def _load_participants() -> tuple[list[str], str]:
     """Return (participants, own_participant_id) from the bootstrap file."""
     path = os.environ.get("MACP_BOOTSTRAP_FILE", "")
@@ -128,6 +137,7 @@ def main() -> int:
     graph = build_graph()
     session_context = _load_session_context()
     participants, self_id = _load_participants()
+    agent_meta = extract_agent_metadata(_load_metadata())
 
     # Two-phase deliberation barrier (RFC-MACP-0007): emit our Evaluation on the
     # Proposal, then defer our Vote until every peer specialist has evaluated, so
@@ -172,12 +182,12 @@ def main() -> int:
         emit_signal(
             ctx.actions,
             "session.started",
-            {"role": "claims-validator", "framework": "langgraph", "agentRef": "fraud-agent"},
+            {"role": agent_meta["role"] or "fraud-agent", "framework": "langgraph", "agentRef": "fraud-agent"},
         )
         emit_progress(ctx.actions, 0.10, "received proposal")
 
         emit_progress(ctx.actions, 0.30, "running fraud analysis graph")
-        graph_input = map_kickoff_to_state(session_context)
+        graph_input = map_kickoff_to_state(session_context, agent_meta)
         t0 = time.time()
         graph_output = graph.invoke(graph_input)
         latency_ms = int((time.time() - t0) * 1000)

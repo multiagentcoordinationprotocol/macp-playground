@@ -97,6 +97,17 @@ See [`docs/policy-authoring.md`](policy-authoring.md) for how these hints
 map from the canonical policy descriptor, and for why `designatedRoles` here
 is unrelated to `rules.commitment.designated_roles` despite the name.
 
+Workers may use `metadata.scenario_ref` to select domain-appropriate
+behavior — e.g. each Python worker's `mappers.py` exposes
+`detect_domain(metadata)`, which maps the scenario ref's pack-slug prefix
+(`fraud`/`lending`/`claims`) to a `Literal['fraud','lending','claims']`,
+defaulting to `'fraud'` with a logged warning for anything missing or
+unrecognized. `extract_agent_metadata(bootstrap)` reads `scenario_ref` and
+`role` out of the bootstrap dict for this purpose. This is a shared
+function *signature*, not shared judgment — each worker still owns its own
+domain logic; the contract just guarantees every worker can find out which
+domain and role it's running as.
+
 ## Worker lifecycle (direct-agent-auth)
 
 The canonical lifecycle (authenticate → branch on initiator → react →

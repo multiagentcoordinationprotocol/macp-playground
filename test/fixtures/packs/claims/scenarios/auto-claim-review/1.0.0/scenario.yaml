@@ -27,6 +27,7 @@ spec:
           type: integer
           default: 24
           minimum: 0
+          description: Age of the policy in months (e.g. 24 = two years).
         priorClaims:
           type: integer
           default: 1
@@ -82,11 +83,6 @@ spec:
       priorClaims: "{{ inputs.priorClaims }}"
       isHighValuePolicy: "{{ inputs.isHighValuePolicy }}"
       incidentSeverity: "{{ inputs.incidentSeverity }}"
-      deviceTrustScore: 0.5
-      transactionAmount: "{{ inputs.claimAmount }}"
-      accountAgeDays: "{{ inputs.policyAge }}"
-      isVipCustomer: "{{ inputs.isHighValuePolicy }}"
-      priorChargebacks: "{{ inputs.priorClaims }}"
 
     metadataTemplate:
       demoType: claims-review

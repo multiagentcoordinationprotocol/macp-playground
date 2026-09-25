@@ -99,11 +99,6 @@ spec:
       employmentYears: "{{ inputs.employmentYears }}"
       isExistingCustomer: "{{ inputs.isExistingCustomer }}"
       priorDefaults: "{{ inputs.priorDefaults }}"
-      deviceTrustScore: 0.5
-      transactionAmount: "{{ inputs.loanAmount }}"
-      accountAgeDays: 365
-      isVipCustomer: "{{ inputs.isExistingCustomer }}"
-      priorChargebacks: "{{ inputs.priorDefaults }}"
 
     metadataTemplate:
       demoType: loan-underwriting

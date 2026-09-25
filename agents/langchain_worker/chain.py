@@ -8,7 +8,23 @@ import json
 import os
 from typing import Any, Dict
 
+try:
+    from mappers import build_prompt, score_by_domain
+except ImportError:
+    from .mappers import build_prompt, score_by_domain
+
 JsonDict = Dict[str, Any]
+
+
+def _score_result(inputs: JsonDict) -> JsonDict:
+    """Delegate to mappers.score_by_domain — the single implementation the
+    framework-available (no-API-key) and framework-unavailable fallback paths
+    both call, eliminating what were two duplicate inline copies of this
+    branching logic (plans/example-agent-domain-scoring.md Phase 2)."""
+    domain = inputs.get('domain', 'fraud')
+    recommendation, confidence, reason = score_by_domain(domain, inputs)
+    return {'recommendation': recommendation, 'confidence': confidence, 'reason': reason}
+
 
 try:
     from langchain_openai import ChatOpenAI
@@ -23,23 +39,10 @@ try:
 
         llm = ChatOpenAI(model='gpt-4o-mini', temperature=0, api_key=api_key)
 
-        prompt = ChatPromptTemplate.from_messages([
-            ('system',
-             'You are a growth analyst evaluating whether a transaction should be approved, '
-             'reviewed, or blocked from a customer value and revenue perspective. '
-             'Balance fraud risk against customer experience and retention. '
-             'Respond with ONLY a JSON object (no markdown): '
-             '{{"recommendation": "APPROVE"|"REVIEW"|"BLOCK", "confidence": 0.0-1.0, '
-             '"reason": "brief explanation", "factors": ["factor1", "factor2"]}}'),
-            ('human',
-             'Transaction: ${transaction_amount}\n'
-             'VIP customer: {is_vip_customer}\n'
-             'Account age: {account_age_days} days\n'
-             'Device trust: {device_trust_score}\n'
-             'Prior chargebacks: {prior_chargebacks}'),
-        ])
-
         def invoke_with_usage(inputs: JsonDict) -> JsonDict:
+            domain = inputs.get('domain', 'fraud')
+            system_message, human_message = build_prompt(domain, inputs)
+            prompt = ChatPromptTemplate.from_messages([('system', system_message), ('human', human_message)])
             chain = prompt | llm
             response = chain.invoke(inputs)
 
@@ -63,48 +66,21 @@ try:
                     'token_usage': token_usage,
                 }
             except (json.JSONDecodeError, ValueError):
-                return {
-                    'recommendation': 'REVIEW',
-                    'confidence': 0.7,
-                    'reason': str(response.content)[:200],
-                    'factors': [],
-                    'token_usage': token_usage,
-                }
+                # Domain-aware fallback — same score_by_domain dispatch as the no-API-key
+                # branch (build_agent's RunnableLambda(_score_result)), not a hardcoded
+                # fraud-shaped REVIEW/0.7 (plans/example-agent-domain-scoring.md Phase 2,
+                # AC#7: the framework-available parse-failure path must be domain-aware too).
+                fallback = _score_result(inputs)
+                return {**fallback, 'factors': [], 'token_usage': token_usage}
 
         return RunnableLambda(invoke_with_usage)
-
-    def _deterministic_growth(inputs: JsonDict) -> JsonDict:
-        amount = float(inputs.get('transaction_amount', 0.0))
-        vip = bool(inputs.get('is_vip_customer', False))
-        account_age_days = int(inputs.get('account_age_days', 0))
-
-        if vip and account_age_days >= 7 and amount <= 5000:
-            return {
-                'recommendation': 'APPROVE',
-                'confidence': 0.88,
-                'reason': 'customer value is high and the purchase fits a trusted profile',
-                'factors': ['vip_status', 'account_maturity', 'amount_within_threshold'],
-            }
-        if amount > 5000 or account_age_days < 3:
-            return {
-                'recommendation': 'REVIEW',
-                'confidence': 0.73,
-                'reason': 'experience goals favor a step-up rather than an outright block',
-                'factors': ['high_amount' if amount > 5000 else 'new_account'],
-            }
-        return {
-            'recommendation': 'APPROVE',
-            'confidence': 0.78,
-            'reason': 'growth impact is favorable with manageable customer friction',
-            'factors': ['standard_profile'],
-        }
 
     def build_agent():
         """Build a LangChain chain — LLM-powered if API key is available."""
         llm_chain = _build_llm_chain()
         if llm_chain:
             return llm_chain
-        return RunnableLambda(_deterministic_growth)
+        return RunnableLambda(_score_result)
 
     HAS_LANGCHAIN = True
 
@@ -117,26 +93,6 @@ except ImportError:
 
         class FallbackChain:
             def invoke(self, inputs: JsonDict) -> JsonDict:
-                amount = float(inputs.get('transaction_amount', 0.0))
-                vip = bool(inputs.get('is_vip_customer', False))
-                account_age_days = int(inputs.get('account_age_days', 0))
-
-                if vip and account_age_days >= 7 and amount <= 5000:
-                    return {
-                        'recommendation': 'APPROVE',
-                        'confidence': 0.88,
-                        'reason': 'customer value is high and the purchase fits a trusted profile',
-                    }
-                if amount > 5000 or account_age_days < 3:
-                    return {
-                        'recommendation': 'REVIEW',
-                        'confidence': 0.73,
-                        'reason': 'experience goals favor a step-up rather than an outright block',
-                    }
-                return {
-                    'recommendation': 'APPROVE',
-                    'confidence': 0.78,
-                    'reason': 'growth impact is favorable with manageable customer friction',
-                }
+                return _score_result(inputs)
 
         return FallbackChain()

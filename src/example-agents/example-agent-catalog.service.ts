@@ -8,6 +8,9 @@ import { ErrorCode } from '../errors/error-codes';
 import { AgentManifest } from '../hosting/contracts/manifest.types';
 
 const FRAUD_SCENARIO = 'fraud/high-value-new-device@1.0.0';
+const LENDING_SCENARIO = 'lending/loan-underwriting@1.0.0';
+const CLAIMS_SCENARIO = 'claims/auto-claim-review@1.0.0';
+const ALL_SCENARIOS = [FRAUD_SCENARIO, LENDING_SCENARIO, CLAIMS_SCENARIO];
 
 function loadManifest(relativePath: string): AgentManifest {
   const absolutePath = path.resolve(process.cwd(), relativePath);
@@ -37,7 +40,7 @@ const EXAMPLE_AGENT_DEFINITIONS: ExampleAgentDefinition[] = [
     role: 'fraud',
     description: 'Evaluates device, chargeback, and identity-risk signals using a LangGraph graph.',
     framework: 'langgraph',
-    supportedScenarioRefs: [FRAUD_SCENARIO],
+    supportedScenarioRefs: ALL_SCENARIOS,
     bootstrap: {
       strategy: 'external',
       entrypoint: 'agents/langgraph_worker/main.py',
@@ -58,7 +61,7 @@ const EXAMPLE_AGENT_DEFINITIONS: ExampleAgentDefinition[] = [
     role: 'growth',
     description: 'Assesses customer value, revenue impact, and experience trade-offs using a LangChain chain.',
     framework: 'langchain',
-    supportedScenarioRefs: [FRAUD_SCENARIO],
+    supportedScenarioRefs: ALL_SCENARIOS,
     bootstrap: {
       strategy: 'external',
       entrypoint: 'agents/langchain_worker/main.py',
@@ -79,7 +82,7 @@ const EXAMPLE_AGENT_DEFINITIONS: ExampleAgentDefinition[] = [
     role: 'compliance',
     description: 'Applies onboarding, policy, and KYC/AML checks using a CrewAI crew.',
     framework: 'crewai',
-    supportedScenarioRefs: [FRAUD_SCENARIO],
+    supportedScenarioRefs: ALL_SCENARIOS,
     bootstrap: {
       strategy: 'external',
       entrypoint: 'agents/crewai_worker/main.py',
@@ -100,7 +103,7 @@ const EXAMPLE_AGENT_DEFINITIONS: ExampleAgentDefinition[] = [
     role: 'risk',
     description: 'Coordinates the final recommendation and turns specialist input into a terminal commitment.',
     framework: 'custom',
-    supportedScenarioRefs: [FRAUD_SCENARIO],
+    supportedScenarioRefs: ALL_SCENARIOS,
     bootstrap: {
       strategy: 'external',
       entrypoint: 'src/example-agents/runtime/risk-decider.worker.ts',

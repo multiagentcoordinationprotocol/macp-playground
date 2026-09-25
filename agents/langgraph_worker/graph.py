@@ -8,7 +8,23 @@ import json
 import os
 from typing import Any, Dict, List, TypedDict
 
+try:
+    from mappers import build_prompt, score_by_domain
+except ImportError:
+    from .mappers import build_prompt, score_by_domain
+
 JsonDict = Dict[str, Any]
+
+
+def _score_result(state: JsonDict) -> JsonDict:
+    """Delegate to mappers.score_by_domain — the single implementation the
+    framework-available (no-API-key) and framework-unavailable fallback paths
+    both call, eliminating what were two duplicate inline copies of this
+    branching logic (plans/example-agent-domain-scoring.md Phase 2)."""
+    domain = state.get('domain', 'fraud')
+    recommendation, confidence, reason = score_by_domain(domain, state)
+    return {'recommendation': recommendation, 'confidence': confidence, 'reason': reason}
+
 
 try:
     from langgraph.graph import StateGraph, END
@@ -49,23 +65,11 @@ try:
         api_key = os.environ.get('OPENAI_API_KEY', '')
         if not api_key:
             # No API key — fall back to deterministic logic
-            return _deterministic_recommendation(state)
+            return _score_result(state)
 
         llm = ChatOpenAI(model='gpt-4o-mini', temperature=0, api_key=api_key)
-        signals = state.get('signals', [])
-
-        prompt = (
-            f"You are a fraud detection analyst. Based on the following signals and transaction data, "
-            f"provide a fraud assessment.\n\n"
-            f"Signals detected: {', '.join(signals) if signals else 'none'}\n"
-            f"Device trust score: {state.get('device_trust_score', 'unknown')}\n"
-            f"Prior chargebacks: {state.get('prior_chargebacks', 0)}\n"
-            f"Transaction amount: ${state.get('transaction_amount', 0)}\n"
-            f"Account age: {state.get('account_age_days', 0)} days\n"
-            f"VIP customer: {state.get('is_vip_customer', False)}\n\n"
-            f"Respond with ONLY a JSON object (no markdown): "
-            f'{{"recommendation": "APPROVE"|"REVIEW"|"BLOCK", "confidence": 0.0-1.0, "reason": "brief explanation"}}'
-        )
+        domain = state.get('domain', 'fraud')
+        prompt = build_prompt(domain, state)
 
         response = llm.invoke(prompt)
 
@@ -90,32 +94,11 @@ try:
                 'token_usage': token_usage,
             }
         except (json.JSONDecodeError, ValueError):
-            return {
-                'recommendation': 'REVIEW',
-                'confidence': 0.7,
-                'reason': str(response.content)[:200],
-                'token_usage': token_usage,
-            }
-
-    def _deterministic_recommendation(state: FraudState) -> dict:
-        signals = state.get('signals', [])
-        if 'critical_device_trust' in signals or 'high_chargeback_risk' in signals:
-            return {
-                'recommendation': 'BLOCK',
-                'confidence': 0.94,
-                'reason': 'device trust is critically low for this account history',
-            }
-        if 'low_device_trust' in signals or 'moderate_chargeback_risk' in signals:
-            return {
-                'recommendation': 'REVIEW',
-                'confidence': 0.84,
-                'reason': 'device trust or chargeback history requires manual review',
-            }
-        return {
-            'recommendation': 'APPROVE',
-            'confidence': 0.72,
-            'reason': 'fraud signals are within the acceptable range for this session',
-        }
+            # Domain-aware fallback — same score_by_domain dispatch as the no-API-key
+            # branch above, not a hardcoded fraud-shaped REVIEW/0.7 (plans/example-agent-domain-scoring.md
+            # Phase 2, AC#7: the framework-available parse-failure path must be domain-aware too).
+            fallback = _score_result(state)
+            return {**fallback, 'token_usage': token_usage}
 
     def build_graph() -> StateGraph:
         """Build the LangGraph fraud evaluation graph with LLM recommendation."""
@@ -140,42 +123,23 @@ except ImportError:
 
         class FallbackGraph:
             def invoke(self, state: JsonDict) -> JsonDict:
-                trust = float(state.get('device_trust_score', 0.0))
-                chargebacks = int(state.get('prior_chargebacks', 0))
+                domain = state.get('domain', 'fraud')
                 signals: List[str] = []
 
-                if trust < 0.08:
-                    signals.append('critical_device_trust')
-                elif trust < 0.2:
-                    signals.append('low_device_trust')
+                if domain == 'fraud':
+                    trust = float(state.get('device_trust_score', 0.0))
+                    chargebacks = int(state.get('prior_chargebacks', 0))
 
-                if chargebacks >= 2:
-                    signals.append('high_chargeback_risk')
-                elif chargebacks >= 1:
-                    signals.append('moderate_chargeback_risk')
+                    if trust < 0.08:
+                        signals.append('critical_device_trust')
+                    elif trust < 0.2:
+                        signals.append('low_device_trust')
 
-                if 'critical_device_trust' in signals or 'high_chargeback_risk' in signals:
-                    return {
-                        **state,
-                        'signals': signals,
-                        'recommendation': 'BLOCK',
-                        'confidence': 0.94,
-                        'reason': 'device trust is critically low for this account history',
-                    }
-                if 'low_device_trust' in signals or 'moderate_chargeback_risk' in signals:
-                    return {
-                        **state,
-                        'signals': signals,
-                        'recommendation': 'REVIEW',
-                        'confidence': 0.84,
-                        'reason': 'device trust or chargeback history requires manual review',
-                    }
-                return {
-                    **state,
-                    'signals': signals,
-                    'recommendation': 'APPROVE',
-                    'confidence': 0.72,
-                    'reason': 'fraud signals are within the acceptable range for this session',
-                }
+                    if chargebacks >= 2:
+                        signals.append('high_chargeback_risk')
+                    elif chargebacks >= 1:
+                        signals.append('moderate_chargeback_risk')
+
+                return {**state, 'signals': signals, **_score_result(state)}
 
         return FallbackGraph()
