@@ -132,10 +132,65 @@ describe('PolicyRulesValidator', () => {
     expect(validator.validateRules('macp.mode.quorum.v1', minimalFixture)).toEqual([]);
   });
 
-  it('validates the mode-agnostic ("*") policy against the decision schema', () => {
+  it('validates a decision-shaped mode-agnostic ("*") policy, still catching a typo nested inside a decision-only key', () => {
     expect(validator.validateRules('*', GOOD_DECISION_RULES)).toEqual([]);
     const broken = { ...GOOD_DECISION_RULES, objection_handling: { veto_threshhold: 3 } };
     expect(validator.validateRules('*', broken).length).toBeGreaterThan(0);
+  });
+
+  it("AC-reconcile: a wildcard policy is validated against every standards-track mode's schema, not just decision's", () => {
+    // Regression test for macp-runtime's own fail-open-defect fix (registry.rs:369-414,
+    // commit 298c0f4): a wildcard-mode policy can legitimately carry a quorum-only field
+    // (`threshold`) if the session it eventually binds to turns out to be a Quorum
+    // session — and that field's value must actually be checked, not silently waved
+    // through the way a Decision-only dispatch would (Decision doesn't recognize
+    // `threshold` at all, so a naive single-schema dispatch never even looks at it).
+    const withValidThreshold = { ...GOOD_DECISION_RULES, threshold: { type: 'n_of_m', value: 5 } };
+    expect(validator.validateRules('*', withValidThreshold)).toEqual([]);
+
+    // threshold.value must be > 0 (schemas/policy/quorum-rules.schema.json's own
+    // exclusiveMinimum: 0 — a zero approval bar trivially passes everything). A
+    // Decision-only wildcard dispatch would never catch this, since Decision's schema
+    // doesn't declare `threshold` and would just reject the whole object as an
+    // unrecognized top-level key rather than checking its value at all.
+    const withInvalidThreshold = { ...GOOD_DECISION_RULES, threshold: { type: 'n_of_m', value: 0 } };
+    expect(validator.validateRules('*', withInvalidThreshold).length).toBeGreaterThan(0);
+  });
+
+  it('AC-reconcile: an entirely unrecognized top-level key on a wildcard policy is still rejected', () => {
+    const withBogusKey = { ...GOOD_DECISION_RULES, totally_made_up_section: { foo: 'bar' } };
+    const errors = validator.validateRules('*', withBogusKey);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some((e) => e.includes('totally_made_up_section'))).toBe(true);
+  });
+
+  it('AC-reconcile-2: a wildcard policy still enforces a cross-field allOf conditional on `commitment`, shared by all 5 modes', () => {
+    // Regression test for a real defect a /ship gate caught in a first attempt at the
+    // wildcard fix: validating just `properties.commitment` in isolation (rather than the
+    // full owning schema) silently dropped this exact conditional — the same
+    // designated_role/designated_roles check issue #81 itself was built to enforce.
+    const withUnsatisfiableAuthority = {
+      ...GOOD_DECISION_RULES,
+      commitment: { authority: 'designated_role', designated_roles: [] }
+    };
+    expect(validator.validateRules('*', withUnsatisfiableAuthority).length).toBeGreaterThan(0);
+
+    const withSatisfiedAuthority = {
+      ...GOOD_DECISION_RULES,
+      commitment: { authority: 'designated_role', designated_roles: ['risk-agent'] }
+    };
+    expect(validator.validateRules('*', withSatisfiedAuthority)).toEqual([]);
+  });
+
+  it('AC-reconcile-3: a wildcard policy still enforces a cross-field allOf conditional on `voting`, owned by decision alone', () => {
+    // Same defect class as AC-reconcile-2, but for a key only one mode declares — proves
+    // this isn't only a shared-key problem: even a single-owner key's own conditionals
+    // (decision-rules.schema.json's allOf) were dropped by the isolated-sub-schema design.
+    const weightedWithoutWeights = { ...GOOD_DECISION_RULES, voting: { algorithm: 'weighted' } };
+    expect(validator.validateRules('*', weightedWithoutWeights).length).toBeGreaterThan(0);
+
+    const supermajorityWithoutThreshold = { ...GOOD_DECISION_RULES, voting: { algorithm: 'supermajority' } };
+    expect(validator.validateRules('*', supermajorityWithoutThreshold).length).toBeGreaterThan(0);
   });
 
   it('returns an explicit "unknown mode" error rather than silently passing for an unrecognized mode', () => {
