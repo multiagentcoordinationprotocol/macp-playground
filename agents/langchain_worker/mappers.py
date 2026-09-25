@@ -35,14 +35,130 @@ def extract_agent_metadata(metadata: JsonDict) -> JsonDict:
     }
 
 
-def map_kickoff_to_inputs(session_context: JsonDict) -> JsonDict:
+def _maybe_float(value: Any):
+    return None if value is None else float(value)
+
+
+def _maybe_int(value: Any):
+    return None if value is None else int(value)
+
+
+def _clamp(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, value))
+
+
+def score_fraud(transaction_amount, is_vip_customer, account_age_days):
+    """Deterministic fraud/growth scoring — extracted from chain.py's duplicate
+    inline copies (`_deterministic_growth` / `FallbackChain.invoke`) so both
+    the framework-available and framework-unavailable call sites delegate to
+    one implementation. Thresholds/confidence values are unchanged from the
+    original inline logic — a must-not-regress constraint verified by Phase
+    1's characterization tests (plans/example-agent-domain-scoring.md)."""
+    amount = float(transaction_amount) if transaction_amount is not None else 0.0
+    vip = bool(is_vip_customer)
+    age = int(account_age_days) if account_age_days is not None else 0
+
+    if vip and age >= 7 and amount <= 5000:
+        return 'APPROVE', 0.88, 'customer value is high and the purchase fits a trusted profile'
+    if amount > 5000 or age < 3:
+        return 'REVIEW', 0.73, 'experience goals favor a step-up rather than an outright block'
+    return 'APPROVE', 0.78, 'growth impact is favorable with manageable customer friction'
+
+
+def score_lending(credit_score, debt_to_income_ratio, employment_years, prior_defaults):
+    """Deterministic lending scoring. See plans/example-agent-domain-scoring.md
+    Phase 2 for the formula's derivation and fixture verification."""
+    if None in (credit_score, debt_to_income_ratio, employment_years, prior_defaults):
+        return 'REVIEW', 0.5, 'insufficient data'
+
+    if prior_defaults > 0:
+        return 'REJECT', 0.75, f'{prior_defaults} prior default(s) on record'
+
+    credit_component = _clamp((credit_score - 580) / (750 - 580), 0.0, 1.0)
+    dti_component = _clamp((0.43 - debt_to_income_ratio) / (0.43 - 0.20), 0.0, 1.0)
+    tenure_component = _clamp(employment_years / 5, 0.0, 1.0)
+    composite = 0.5 * credit_component + 0.35 * dti_component + 0.15 * tenure_component
+
+    if composite >= 0.70:
+        confidence = 0.6 + 0.3 * min((composite - 0.70) / 0.30, 1.0)
+        return 'APPROVE', confidence, f'composite score {composite:.2f} exceeds approval threshold'
+    if composite <= 0.35:
+        confidence = 0.6 + 0.3 * min((0.35 - composite) / 0.35, 1.0)
+        return 'REJECT', confidence, f'composite score {composite:.2f} below rejection threshold'
+    return 'REVIEW', 0.5, f'composite score {composite:.2f} requires manual review'
+
+
+_CLAIMS_SEVERITY_SCORES = {'minor': 1.0, 'moderate': 0.7, 'severe': 0.35, 'total_loss': 0.15}
+
+
+def score_claims(claim_amount, policy_age, prior_claims, is_high_value_policy, incident_severity):
+    """Deterministic claims scoring. See plans/example-agent-domain-scoring.md
+    Phase 2 for the formula's derivation and fixture verification. Never
+    returns 'BLOCK' — crewai's Objection path is reserved for fraud."""
+    if None in (claim_amount, policy_age, prior_claims, is_high_value_policy, incident_severity):
+        return 'REVIEW', 0.5, 'insufficient data'
+
+    severity_score = _CLAIMS_SEVERITY_SCORES.get(str(incident_severity).lower())
+    if severity_score is None:
+        return 'REVIEW', 0.5, 'insufficient data'
+
+    tenure_component = _clamp(policy_age / 24, 0.0, 1.0)
+    history_component = _clamp(1 - prior_claims * 0.3, 0.0, 1.0)
+    value_penalty = 0.15 if is_high_value_policy else 0.0
+    composite = 0.5 * severity_score + 0.25 * tenure_component + 0.25 * history_component - value_penalty
+
+    if composite >= 0.65:
+        confidence = 0.6 + 0.3 * min((composite - 0.65) / 0.35, 1.0)
+        return 'APPROVE', confidence, f'composite score {composite:.2f} exceeds approval threshold'
+    if composite <= 0.30:
+        confidence = 0.6 + 0.3 * min((0.30 - composite) / 0.30, 1.0)
+        return 'REJECT', confidence, f'composite score {composite:.2f} below rejection threshold'
+    return 'REVIEW', 0.5, f'composite score {composite:.2f} requires manual review'
+
+
+def score_by_domain(domain: Domain, fields: JsonDict):
+    """Dispatch to the domain-appropriate deterministic scorer. `fields` is the
+    already-snake_case dict produced by this module's map_kickoff_to_* function."""
+    if domain == 'lending':
+        return score_lending(
+            fields.get('credit_score'),
+            fields.get('debt_to_income_ratio'),
+            fields.get('employment_years'),
+            fields.get('prior_defaults'),
+        )
+    if domain == 'claims':
+        return score_claims(
+            fields.get('claim_amount'),
+            fields.get('policy_age'),
+            fields.get('prior_claims'),
+            fields.get('is_high_value_policy'),
+            fields.get('incident_severity'),
+        )
+    return score_fraud(
+        fields.get('transaction_amount'),
+        fields.get('is_vip_customer'),
+        fields.get('account_age_days'),
+    )
+
+
+def map_kickoff_to_inputs(session_context: JsonDict, metadata: JsonDict = None) -> JsonDict:
     """Convert MACP session context into LangChain chain input."""
     return {
+        'domain': detect_domain(metadata or {}),
         'transaction_amount': float(session_context.get('transactionAmount', 0.0) or 0.0),
         'is_vip_customer': bool(session_context.get('isVipCustomer', False)),
         'account_age_days': int(session_context.get('accountAgeDays', 0) or 0),
         'device_trust_score': float(session_context.get('deviceTrustScore', 0.0) or 0.0),
         'prior_chargebacks': int(session_context.get('priorChargebacks', 0) or 0),
+        'credit_score': _maybe_float(session_context.get('creditScore')),
+        'debt_to_income_ratio': _maybe_float(session_context.get('debtToIncomeRatio')),
+        'employment_years': _maybe_float(session_context.get('employmentYears')),
+        'prior_defaults': _maybe_int(session_context.get('priorDefaults')),
+        'claim_amount': _maybe_float(session_context.get('claimAmount')),
+        'policy_age': _maybe_float(session_context.get('policyAge')),
+        'prior_claims': _maybe_int(session_context.get('priorClaims')),
+        'is_high_value_policy': session_context.get('isHighValuePolicy'),
+        'incident_severity': session_context.get('incidentSeverity'),
     }
 
 

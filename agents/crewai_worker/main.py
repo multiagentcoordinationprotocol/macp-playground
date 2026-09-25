@@ -179,7 +179,7 @@ def main() -> int:
         emit_progress(ctx.actions, 0.10, "received proposal")
 
         emit_progress(ctx.actions, 0.30, "running compliance crew")
-        crew_inputs = map_kickoff_to_crew_inputs(session_context)
+        crew_inputs = map_kickoff_to_crew_inputs(session_context, agent_meta)
         crew = build_crew(crew_inputs)
         t0 = time.time()
         crew_result = crew.kickoff()

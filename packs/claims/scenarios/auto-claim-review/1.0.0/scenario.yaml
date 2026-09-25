@@ -27,6 +27,7 @@ spec:
           type: integer
           default: 24
           minimum: 0
+          description: Age of the policy in months (e.g. 24 = two years).
         priorClaims:
           type: integer
           default: 1

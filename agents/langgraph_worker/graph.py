@@ -8,7 +8,23 @@ import json
 import os
 from typing import Any, Dict, List, TypedDict
 
+try:
+    from mappers import score_by_domain
+except ImportError:
+    from .mappers import score_by_domain
+
 JsonDict = Dict[str, Any]
+
+
+def _score_result(state: JsonDict) -> JsonDict:
+    """Delegate to mappers.score_by_domain — the single implementation the
+    framework-available (no-API-key) and framework-unavailable fallback paths
+    both call, eliminating what were two duplicate inline copies of this
+    branching logic (plans/example-agent-domain-scoring.md Phase 2)."""
+    domain = state.get('domain', 'fraud')
+    recommendation, confidence, reason = score_by_domain(domain, state)
+    return {'recommendation': recommendation, 'confidence': confidence, 'reason': reason}
+
 
 try:
     from langgraph.graph import StateGraph, END
@@ -49,7 +65,7 @@ try:
         api_key = os.environ.get('OPENAI_API_KEY', '')
         if not api_key:
             # No API key — fall back to deterministic logic
-            return _deterministic_recommendation(state)
+            return _score_result(state)
 
         llm = ChatOpenAI(model='gpt-4o-mini', temperature=0, api_key=api_key)
         signals = state.get('signals', [])
@@ -97,26 +113,6 @@ try:
                 'token_usage': token_usage,
             }
 
-    def _deterministic_recommendation(state: FraudState) -> dict:
-        signals = state.get('signals', [])
-        if 'critical_device_trust' in signals or 'high_chargeback_risk' in signals:
-            return {
-                'recommendation': 'BLOCK',
-                'confidence': 0.94,
-                'reason': 'device trust is critically low for this account history',
-            }
-        if 'low_device_trust' in signals or 'moderate_chargeback_risk' in signals:
-            return {
-                'recommendation': 'REVIEW',
-                'confidence': 0.84,
-                'reason': 'device trust or chargeback history requires manual review',
-            }
-        return {
-            'recommendation': 'APPROVE',
-            'confidence': 0.72,
-            'reason': 'fraud signals are within the acceptable range for this session',
-        }
-
     def build_graph() -> StateGraph:
         """Build the LangGraph fraud evaluation graph with LLM recommendation."""
         graph = StateGraph(FraudState)
@@ -140,42 +136,23 @@ except ImportError:
 
         class FallbackGraph:
             def invoke(self, state: JsonDict) -> JsonDict:
-                trust = float(state.get('device_trust_score', 0.0))
-                chargebacks = int(state.get('prior_chargebacks', 0))
+                domain = state.get('domain', 'fraud')
                 signals: List[str] = []
 
-                if trust < 0.08:
-                    signals.append('critical_device_trust')
-                elif trust < 0.2:
-                    signals.append('low_device_trust')
+                if domain == 'fraud':
+                    trust = float(state.get('device_trust_score', 0.0))
+                    chargebacks = int(state.get('prior_chargebacks', 0))
 
-                if chargebacks >= 2:
-                    signals.append('high_chargeback_risk')
-                elif chargebacks >= 1:
-                    signals.append('moderate_chargeback_risk')
+                    if trust < 0.08:
+                        signals.append('critical_device_trust')
+                    elif trust < 0.2:
+                        signals.append('low_device_trust')
 
-                if 'critical_device_trust' in signals or 'high_chargeback_risk' in signals:
-                    return {
-                        **state,
-                        'signals': signals,
-                        'recommendation': 'BLOCK',
-                        'confidence': 0.94,
-                        'reason': 'device trust is critically low for this account history',
-                    }
-                if 'low_device_trust' in signals or 'moderate_chargeback_risk' in signals:
-                    return {
-                        **state,
-                        'signals': signals,
-                        'recommendation': 'REVIEW',
-                        'confidence': 0.84,
-                        'reason': 'device trust or chargeback history requires manual review',
-                    }
-                return {
-                    **state,
-                    'signals': signals,
-                    'recommendation': 'APPROVE',
-                    'confidence': 0.72,
-                    'reason': 'fraud signals are within the acceptable range for this session',
-                }
+                    if chargebacks >= 2:
+                        signals.append('high_chargeback_risk')
+                    elif chargebacks >= 1:
+                        signals.append('moderate_chargeback_risk')
+
+                return {**state, 'signals': signals, **_score_result(state)}
 
         return FallbackGraph()

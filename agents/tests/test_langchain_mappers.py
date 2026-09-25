@@ -2,12 +2,16 @@
 
 import logging
 
-from langchain_worker.chain import build_agent
+from langchain_worker.chain import _score_result, build_agent
 from langchain_worker.mappers import (
     detect_domain,
     extract_agent_metadata,
     map_kickoff_to_inputs,
     map_result_to_macp_messages,
+    score_by_domain,
+    score_claims,
+    score_fraud,
+    score_lending,
 )
 
 
@@ -23,22 +27,27 @@ class TestMapKickoffToInputs:
             }
         )
 
-        assert inputs == {
-            'transaction_amount': 3200.0,
-            'is_vip_customer': True,
-            'account_age_days': 5,
-            'device_trust_score': 0.12,
-            'prior_chargebacks': 1,
-        }
+        assert inputs['transaction_amount'] == 3200.0
+        assert inputs['is_vip_customer'] is True
+        assert inputs['account_age_days'] == 5
+        assert inputs['device_trust_score'] == 0.12
+        assert inputs['prior_chargebacks'] == 1
 
     def test_defaults_for_empty_context(self):
-        assert map_kickoff_to_inputs({}) == {
-            'transaction_amount': 0.0,
-            'is_vip_customer': False,
-            'account_age_days': 0,
-            'device_trust_score': 0.0,
-            'prior_chargebacks': 0,
-        }
+        inputs = map_kickoff_to_inputs({})
+        assert inputs['transaction_amount'] == 0.0
+        assert inputs['is_vip_customer'] is False
+        assert inputs['account_age_days'] == 0
+        assert inputs['device_trust_score'] == 0.0
+        assert inputs['prior_chargebacks'] == 0
+
+    def test_domain_specific_fields_default_to_none_when_absent(self):
+        inputs = map_kickoff_to_inputs({})
+        for field in (
+            'credit_score', 'debt_to_income_ratio', 'employment_years', 'prior_defaults',
+            'claim_amount', 'policy_age', 'prior_claims', 'is_high_value_policy', 'incident_severity',
+        ):
+            assert inputs[field] is None
 
     def test_none_values_coerce_to_zero_instead_of_raising(self):
         inputs = map_kickoff_to_inputs({'transactionAmount': None, 'priorChargebacks': None})
@@ -162,3 +171,116 @@ class TestFraudCharacterization:
         output = build_agent().invoke(inputs)
         assert output['recommendation'] == 'APPROVE'
         assert output['confidence'] == 0.78
+
+
+class TestScoreFraud:
+    def test_matches_extracted_characterization_values(self):
+        assert score_fraud(1000, True, 30) == (
+            'APPROVE', 0.88, 'customer value is high and the purchase fits a trusted profile',
+        )
+        assert score_fraud(6000, False, 30) == (
+            'REVIEW', 0.73, 'experience goals favor a step-up rather than an outright block',
+        )
+        assert score_fraud(1000, False, 10) == (
+            'APPROVE', 0.78, 'growth impact is favorable with manageable customer friction',
+        )
+
+
+class TestScoreLending:
+    def test_strong_application_approves_with_qualifying_confidence(self):
+        recommendation, confidence, _ = score_lending(720, 0.28, 6, 0)
+        assert recommendation == 'APPROVE'
+        assert confidence >= 0.6
+
+    def test_weak_application_rejects_on_prior_defaults_hard_gate(self):
+        recommendation, confidence, reason = score_lending(550, 0.55, 0, 2)
+        assert recommendation == 'REJECT'
+        assert confidence >= 0.6
+        assert confidence == 0.75
+        assert '2' in reason
+
+    def test_missing_field_returns_review(self):
+        assert score_lending(None, 0.28, 6, 0) == ('REVIEW', 0.5, 'insufficient data')
+
+    def test_result_is_always_within_allowed_vocabulary(self):
+        for credit_score in (500, 580, 650, 720, 800):
+            for dti in (0.10, 0.20, 0.30, 0.43, 0.55):
+                for years in (0, 2, 5, 10):
+                    for defaults in (0, 1):
+                        recommendation, confidence, _ = score_lending(credit_score, dti, years, defaults)
+                        assert recommendation in ('APPROVE', 'REJECT', 'REVIEW')
+                        assert 0.0 <= confidence <= 1.0
+
+
+class TestScoreClaims:
+    def test_clear_minor_claim_approves_with_qualifying_confidence(self):
+        recommendation, confidence, _ = score_claims(2000, 24, 0, False, 'minor')
+        assert recommendation == 'APPROVE'
+        assert confidence >= 0.6
+
+    def test_severe_high_value_out_of_pattern_claim_rejects(self):
+        recommendation, confidence, _ = score_claims(50000, 2, 3, True, 'severe')
+        assert recommendation == 'REJECT'
+        assert confidence >= 0.6
+
+    def test_missing_field_returns_review(self):
+        assert score_claims(2000, None, 0, False, 'minor') == ('REVIEW', 0.5, 'insufficient data')
+
+    def test_unrecognized_severity_returns_review(self):
+        assert score_claims(2000, 24, 0, False, 'catastrophic') == ('REVIEW', 0.5, 'insufficient data')
+
+    def test_result_is_always_within_allowed_vocabulary(self):
+        for amount in (500, 5000, 50000):
+            for age in (0, 6, 24, 48):
+                for prior in (0, 1, 3):
+                    for high_value in (True, False):
+                        for severity in ('minor', 'moderate', 'severe', 'total_loss'):
+                            recommendation, confidence, _ = score_claims(amount, age, prior, high_value, severity)
+                            assert recommendation in ('APPROVE', 'REJECT', 'REVIEW')
+                            assert 0.0 <= confidence <= 1.0
+
+
+class TestScoreByDomain:
+    def test_dispatches_to_lending(self):
+        fields = {'credit_score': 720, 'debt_to_income_ratio': 0.28, 'employment_years': 6, 'prior_defaults': 0}
+        assert score_by_domain('lending', fields) == score_lending(720, 0.28, 6, 0)
+
+    def test_dispatches_to_claims(self):
+        fields = {
+            'claim_amount': 2000, 'policy_age': 24, 'prior_claims': 0,
+            'is_high_value_policy': False, 'incident_severity': 'minor',
+        }
+        assert score_by_domain('claims', fields) == score_claims(2000, 24, 0, False, 'minor')
+
+    def test_dispatches_to_fraud_by_default(self):
+        fields = {'transaction_amount': 1000, 'is_vip_customer': True, 'account_age_days': 30}
+        assert score_by_domain('fraud', fields) == score_fraud(1000, True, 30)
+
+
+class TestBothCallSitesDelegate:
+    """AC#7: both the framework-available (no-API-key) and
+    framework-unavailable fallback call sites delegate to the same
+    mappers.score_by_domain via chain.py's module-level `_score_result`,
+    proven directly for the one reachable entry point in this environment
+    (FallbackChain.invoke). The other entry point (build_agent()'s no-api-key
+    branch — unreachable here, see agents/requirements-dev.txt) is a
+    one-line `RunnableLambda(_score_result)` call to the identical function,
+    confirmed by reading chain.py directly."""
+
+    def test_fallback_output_matches_shared_function_directly(self):
+        inputs = map_kickoff_to_inputs({'isVipCustomer': False, 'accountAgeDays': 10, 'transactionAmount': 1000})
+        direct = _score_result(inputs)
+        via_fallback = build_agent().invoke(inputs)
+        assert via_fallback['recommendation'] == direct['recommendation']
+        assert via_fallback['confidence'] == direct['confidence']
+        assert via_fallback['reason'] == direct['reason']
+
+    def test_lending_domain_routes_through_fallback_identically(self):
+        inputs = map_kickoff_to_inputs(
+            {'creditScore': 720, 'debtToIncomeRatio': 0.28, 'employmentYears': 6, 'priorDefaults': 0},
+            {'scenario_ref': 'lending/loan-underwriting@1.0.0'},
+        )
+        direct = _score_result(inputs)
+        via_fallback = build_agent().invoke(inputs)
+        assert via_fallback['recommendation'] == direct['recommendation'] == 'APPROVE'
+        assert via_fallback['confidence'] == direct['confidence']

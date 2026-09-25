@@ -8,7 +8,23 @@ import json
 import os
 from typing import Any, Dict
 
+try:
+    from mappers import score_by_domain
+except ImportError:
+    from .mappers import score_by_domain
+
 JsonDict = Dict[str, Any]
+
+
+def _score_result(inputs: JsonDict) -> JsonDict:
+    """Delegate to mappers.score_by_domain — the single implementation the
+    framework-available (no-API-key) and framework-unavailable fallback paths
+    both call, eliminating what were two duplicate inline copies of this
+    branching logic (plans/example-agent-domain-scoring.md Phase 2)."""
+    domain = inputs.get('domain', 'fraud')
+    recommendation, confidence, reason = score_by_domain(domain, inputs)
+    return {'recommendation': recommendation, 'confidence': confidence, 'reason': reason}
+
 
 try:
     from langchain_openai import ChatOpenAI
@@ -73,38 +89,12 @@ try:
 
         return RunnableLambda(invoke_with_usage)
 
-    def _deterministic_growth(inputs: JsonDict) -> JsonDict:
-        amount = float(inputs.get('transaction_amount', 0.0))
-        vip = bool(inputs.get('is_vip_customer', False))
-        account_age_days = int(inputs.get('account_age_days', 0))
-
-        if vip and account_age_days >= 7 and amount <= 5000:
-            return {
-                'recommendation': 'APPROVE',
-                'confidence': 0.88,
-                'reason': 'customer value is high and the purchase fits a trusted profile',
-                'factors': ['vip_status', 'account_maturity', 'amount_within_threshold'],
-            }
-        if amount > 5000 or account_age_days < 3:
-            return {
-                'recommendation': 'REVIEW',
-                'confidence': 0.73,
-                'reason': 'experience goals favor a step-up rather than an outright block',
-                'factors': ['high_amount' if amount > 5000 else 'new_account'],
-            }
-        return {
-            'recommendation': 'APPROVE',
-            'confidence': 0.78,
-            'reason': 'growth impact is favorable with manageable customer friction',
-            'factors': ['standard_profile'],
-        }
-
     def build_agent():
         """Build a LangChain chain — LLM-powered if API key is available."""
         llm_chain = _build_llm_chain()
         if llm_chain:
             return llm_chain
-        return RunnableLambda(_deterministic_growth)
+        return RunnableLambda(_score_result)
 
     HAS_LANGCHAIN = True
 
@@ -117,26 +107,6 @@ except ImportError:
 
         class FallbackChain:
             def invoke(self, inputs: JsonDict) -> JsonDict:
-                amount = float(inputs.get('transaction_amount', 0.0))
-                vip = bool(inputs.get('is_vip_customer', False))
-                account_age_days = int(inputs.get('account_age_days', 0))
-
-                if vip and account_age_days >= 7 and amount <= 5000:
-                    return {
-                        'recommendation': 'APPROVE',
-                        'confidence': 0.88,
-                        'reason': 'customer value is high and the purchase fits a trusted profile',
-                    }
-                if amount > 5000 or account_age_days < 3:
-                    return {
-                        'recommendation': 'REVIEW',
-                        'confidence': 0.73,
-                        'reason': 'experience goals favor a step-up rather than an outright block',
-                    }
-                return {
-                    'recommendation': 'APPROVE',
-                    'confidence': 0.78,
-                    'reason': 'growth impact is favorable with manageable customer friction',
-                }
+                return _score_result(inputs)
 
         return FallbackChain()

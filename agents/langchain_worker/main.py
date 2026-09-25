@@ -180,7 +180,7 @@ def main() -> int:
         emit_progress(ctx.actions, 0.10, "received proposal")
 
         emit_progress(ctx.actions, 0.30, "running growth analysis chain")
-        chain_input = map_kickoff_to_inputs(session_context)
+        chain_input = map_kickoff_to_inputs(session_context, agent_meta)
         t0 = time.time()
         chain_output = chain.invoke(chain_input)
         latency_ms = int((time.time() - t0) * 1000)

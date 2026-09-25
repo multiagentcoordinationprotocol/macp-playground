@@ -187,7 +187,7 @@ def main() -> int:
         emit_progress(ctx.actions, 0.10, "received proposal")
 
         emit_progress(ctx.actions, 0.30, "running fraud analysis graph")
-        graph_input = map_kickoff_to_state(session_context)
+        graph_input = map_kickoff_to_state(session_context, agent_meta)
         t0 = time.time()
         graph_output = graph.invoke(graph_input)
         latency_ms = int((time.time() - t0) * 1000)
