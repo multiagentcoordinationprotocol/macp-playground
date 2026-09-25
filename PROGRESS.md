@@ -139,6 +139,47 @@ Round 1 revision. See the plan's own "Plan review" section for the full accounti
   the module-level/constructor-internal `PolicyRulesValidator` instantiation choice (not DI)
   is exactly what kept this call site, and the other 6 `new PolicyLoaderService()` sites
   across the spec files, untouched.
-- What's next: fresh Opus verifier result for Phase 2 (pending); then Phase 3 (docs sweep +
-  `scripts/scenario/lint.ts` CLI integration + new committed negative-fixture test in
-  `test/integration/scenario-cli.integration.spec.ts`) — inside the isolated worktree.
+- What's next: Phase 3 (docs sweep + `scripts/scenario/lint.ts` CLI integration + new
+  committed negative-fixture test in `test/integration/scenario-cli.integration.spec.ts`) —
+  inside the isolated worktree.
+
+### Phase 3 — Documentation sweep + authoring-time (CLI) feedback
+- Status: DONE (2026-09-25). Committed as `6afa241`.
+- Files touched: `docs/policy-authoring.md` (new "Shape validation: closed keys, annotations,
+  and voting.weights" subsection documenting additionalProperties:false closure, the `^[_$]`
+  annotation namespace, the voting.weights keys-open/values-and-map-size-still-validated
+  exception, and the new `plurality` algorithm; schema_version section now states the closed
+  `{1,2,3}` enum explicitly; "Local validation warnings" section updated to note local shape
+  conformance is now checked, not only runtime-side), `scripts/scenario/lint.ts`
+  (`loadKnownPolicies()` `Set<string>` → `Map<string, PolicyDefinition>`; threaded a
+  `PolicyRulesValidator` + shared cross-pack `validatedPolicyIds` dedup set through
+  `lintPack()`; every scenario's `policyVersion`, including `policy.default`, now gets its
+  referenced policy's `rules` validated against the real schema),
+  `test/integration/scenario-cli.integration.spec.ts` (new committed negative-fixture test in
+  the existing `runLint (in-process)` describe block — scratch pack + a policy with the
+  issue's own `veto_threshhold` typo, asserting exit code 1 with the offending key named in an
+  error-level finding).
+- Verifier: fresh Opus subagent (general-purpose, model opus) — PASS on all 5 acceptance
+  criteria, independently re-derived rather than trusted: fact-checked every claim in the new
+  docs subsection directly against the vendored schema JSON; built its own probe harness
+  (clean/broken/annotated policy fixtures) to prove the new negative-fixture test genuinely
+  exercises the new schema-validation path, not an existing check; ran `scenario:lint`,
+  `test:integration`, `build`, `lint`, `format:check`, unit, and e2e itself; traced
+  `policyVersion: policy.default` (the fraud pack's own scenario) through the code and an
+  empirical probe to confirm it is genuinely schema-validated despite the pre-existing
+  existence-check's skip for that one id. Two non-blocking observations, neither a plan
+  contradiction: lint checks only scenario-level `policyVersion` (matches the plan's stated
+  scope; template-level overrides remain hard-gated by Phase 2's CI check regardless), and one
+  doc sentence loosely attributed the `schema_version` range check to the #81 validator when
+  it's actually the loader's pre-existing hand-rolled bound — fixed immediately after
+  verification (this entry).
+- Verification: `npm run scenario:lint -- packs` → 0 errors/0 warnings; `npm run
+  test:integration` 79/79 (+1 from Phase 2's 78); `npm run build`/`lint`/`format:check` clean;
+  unit 467/467 unchanged; e2e 31/31 unchanged.
+- Finalization: all 3 phases now `Status: DONE` in `plans/policy-rule-schema-validation.md`;
+  this checkpoint log now has an entry for every phase. Full-suite re-run from a clean state
+  performed as the closing step (see below this phase's final entry, if a separate
+  finalization pass added one).
+- What's next: nothing — this plan is complete. Per the originating scope
+  ("/plan and /implement", not "/ship"): no push, no PR, no merge. Reporting back to the
+  coordinator/user for a decision on next steps (ship, or leave as a local branch).

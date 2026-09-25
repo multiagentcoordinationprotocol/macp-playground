@@ -376,11 +376,15 @@ obviously invalid combinations. As of #81, this check includes real
 **shape** conformance against the vendored upstream rule schemas
 (`schemas/policy/`, see its `README.md` for provenance) — the same
 schemas the runtime's own validation is generated from — so an unknown
-key, an out-of-range `schema_version`, or an empty `designated_roles`
-under `designated_role` authority is now caught locally, with a logged
-warning, before registration is even attempted. This local check is
-still non-blocking (a bad file loads anyway, matching this repo's
-existing warn-and-load design) and is not a substitute for the runtime:
+key or an empty `designated_roles` under `designated_role` authority is
+now caught locally, with a logged warning, before registration is even
+attempted. (`schema_version`'s allowed range is checked separately by
+this loader's own pre-existing bound; the schema's closed `{1, 2, 3}`
+enum is enforced by the CI gate in `src/policy/policies-on-disk.spec.ts`,
+which validates each shipped file's full descriptor, not by this
+warn-on-load path.) This local check is still non-blocking (a bad file
+loads anyway, matching this repo's existing warn-and-load design) and is
+not a substitute for the runtime:
 the **authoritative** schema validation happens at the runtime during
 `RegisterPolicy` — if a descriptor passes local load but fails at the
 runtime, the registrar logs `policy_register_exception` with the

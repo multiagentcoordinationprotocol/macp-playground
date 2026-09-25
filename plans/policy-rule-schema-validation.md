@@ -110,7 +110,27 @@ This repo just finished `plans/absorb-runtime-v0.8.0.md` Phase 2, which migrated
 
 ### Phase 3 — Documentation sweep + authoring-time (CLI) feedback
 
-- **Status:** TODO
+- **Status:** DONE (2026-09-25). Committed as `6afa241` on `feat/policy-rule-schema-validation`.
+  Verifier: fresh Opus subagent — PASS on all 5 acceptance criteria, independently re-derived:
+  fact-checked every claim in the new docs subsection directly against the vendored schema
+  (voting.algorithm enum, voting.weights constraints, additionalProperties/patternProperties at
+  all 6 nesting levels — all accurate); built its own probe harness to prove the new negative-
+  fixture test really exercises the new schema-validation code path and not an existing check
+  (clean-policy fixture → exit 0; broken-policy fixture → exit 1 with the offending key named;
+  annotated-policy fixture → exit 0); ran `npm run scenario:lint -- packs` itself (0/0); ran
+  `npm run test:integration` itself (79/79, +1 from Phase 2's 78, confirmed via `-t` that the
+  new test is what ran); traced `policyVersion: policy.default` (used by
+  `packs/fraud/scenarios/high-value-new-device/1.0.0/scenario.yaml`) through the code and an
+  empirical probe to confirm it genuinely gets schema-validated, not skipped by the pre-existing
+  existence-check exemption; confirmed build/lint/format:check clean and unit/e2e unchanged at
+  467/467 and 31/31. Two non-blocking observations, neither a plan contradiction: (a)
+  `scripts/scenario/lint.ts` validates only scenario-level `policyVersion`, not template-level
+  overrides — matches the plan's own stated scope and the pre-existing existence check's scope,
+  and both are still hard-gated by Phase 2's `policies-on-disk.spec.ts` CI gate regardless; (b)
+  a doc sentence loosely attributed the `schema_version` range check to the #81 rules-validator
+  when it's actually the loader's pre-existing hand-rolled bound (the closed-enum check lives
+  in the CI gate's descriptor pass, not the loader's warn-on-load path) — fixed immediately
+  after verification, in `docs/policy-authoring.md`'s "Local validation warnings" section.
 - **Delivers:** `docs/policy-authoring.md` updated to document the three #81 tightenings and to correct what's actually stale in that file (verified directly — not the plan's earlier, now-corrected assumption that the custom-policy walkthrough taught `veto_threshold: 0`; it already correctly shows `veto_threshold: 1`). What's actually stale: the summary table at `:38-41` (its description of the shipped files' shapes, once the 3 files change), `:207`'s "the runtime accepts 1, 2, and 3" phrasing (accurate but doesn't state it's now a **closed enum** that rejects e.g. `4`), and `:338-348`'s "the authoritative schema validation happens at the runtime" framing (still true for anything this repo's validator doesn't cover, but should note that *shape* conformance is now checked locally too). A new subsection documents the annotation-key namespace and the `voting.weights` exception — confirmed **zero** current mentions of `weights`, `$comment`, `additionalProperties`, or `plurality` anywhere in this file. `npm run scenario:lint -- packs` (`scripts/scenario/lint.ts`) gains a check that every policy file referenced by a scenario's `policyVersion` passes real rules-schema validation, reusing the same `PolicyRulesValidator`.
 - **Depends on:** Phase 2 (documents and surfaces behavior that phase implements; reuses the same `PolicyRulesValidator`).
 - **Files:**
