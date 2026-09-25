@@ -10,8 +10,7 @@
       "quorum": { "type": "count", "value": 2 }
     },
     "objection_handling": {
-      "critical_severity_vetoes": false,
-      "veto_threshold": 0
+      "critical_severity_vetoes": false
     },
     "evaluation": {
       "minimum_confidence": 0.0,

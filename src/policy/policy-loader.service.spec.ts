@@ -4,6 +4,24 @@ import { PolicyLoaderService } from './policy-loader.service';
 
 jest.mock('node:fs');
 const fsMock = fs as jest.Mocked<typeof fs>;
+const actualFs = jest.requireActual<typeof fs>('node:fs');
+
+/**
+ * PolicyLoaderService's constructor now also constructs a real PolicyRulesValidator (#81),
+ * which reads the real vendored schema files off disk via fs.readFileSync. Since this file
+ * mocks the whole `node:fs` module, every readFileSync stand-in below must delegate
+ * schema-path reads to the real filesystem and only fake the policies/*.json content —
+ * otherwise every `new PolicyLoaderService()` in this file throws at construction time.
+ */
+function delegatingReadFileSync(policyContent: (path: string) => string): typeof fs.readFileSync {
+  return ((filePath: fs.PathOrFileDescriptor, options?: unknown) => {
+    const p = String(filePath);
+    if (p.includes('schemas')) {
+      return actualFs.readFileSync(filePath as fs.PathOrFileDescriptor, options as BufferEncoding);
+    }
+    return policyContent(p);
+  }) as typeof fs.readFileSync;
+}
 
 describe('PolicyLoaderService', () => {
   let service: PolicyLoaderService;
@@ -35,15 +53,18 @@ describe('PolicyLoaderService', () => {
   };
 
   beforeEach(() => {
-    service = new PolicyLoaderService();
     fsMock.existsSync.mockReturnValue(true);
     (fsMock.readdirSync as jest.Mock).mockReturnValue(['policy.default.json', 'policy.fraud.unanimous.json']);
-    fsMock.readFileSync.mockImplementation((filePath: fs.PathOrFileDescriptor) => {
-      const p = String(filePath);
-      if (p.includes('policy.default.json')) return JSON.stringify(defaultPolicy);
-      if (p.includes('policy.fraud.unanimous.json')) return JSON.stringify(fraudPolicy);
-      throw new Error('file not found');
-    });
+    fsMock.readFileSync.mockImplementation(
+      delegatingReadFileSync((p) => {
+        if (p.includes('policy.default.json')) return JSON.stringify(defaultPolicy);
+        if (p.includes('policy.fraud.unanimous.json')) return JSON.stringify(fraudPolicy);
+        throw new Error('file not found');
+      })
+    );
+    // Constructed last, after the mocks above are in place — its constructor now eagerly
+    // builds a real PolicyRulesValidator, which reads schema files via the mock above.
+    service = new PolicyLoaderService();
   });
 
   afterEach(() => {
@@ -93,7 +114,7 @@ describe('PolicyLoaderService', () => {
   });
 
   it('handles malformed JSON gracefully', () => {
-    fsMock.readFileSync.mockReturnValue('not valid json');
+    fsMock.readFileSync.mockImplementation(delegatingReadFileSync(() => 'not valid json'));
     service = new PolicyLoaderService();
     const policies = service.listAvailablePolicies();
     expect(policies).toHaveLength(0);
@@ -101,7 +122,9 @@ describe('PolicyLoaderService', () => {
 
   it('skips files without policy_id', () => {
     (fsMock.readdirSync as jest.Mock).mockReturnValue(['broken.json']);
-    fsMock.readFileSync.mockReturnValue(JSON.stringify({ description: 'no policy_id' }));
+    fsMock.readFileSync.mockImplementation(
+      delegatingReadFileSync(() => JSON.stringify({ description: 'no policy_id' }))
+    );
     service = new PolicyLoaderService();
     const policies = service.listAvailablePolicies();
     expect(policies).toHaveLength(0);
@@ -118,7 +141,15 @@ describe('PolicyLoaderService', () => {
       expect(errors).toContain('schema_version must be >= 1');
     });
 
-    it('returns error when supermajority threshold is <= 0.5', () => {
+    // The four hand-rolled checks these next several tests originally exercised (supermajority
+    // threshold, weighted-requires-weights, minimum_confidence range, designated_role) were
+    // removed in #81 / plan Phase 2 as exactly redundant with the real vendored schema now
+    // wired in via PolicyRulesValidator. The rejections below still happen — via the schema —
+    // so these tests are updated to assert against the schema's own formatted messages
+    // (which include the offending path, e.g. "/voting/threshold") rather than deleted
+    // hand-rolled strings, preserving the regression coverage rather than dropping it.
+
+    it('returns error when supermajority threshold is <= 0.5 (caught by the real upstream schema)', () => {
       const policy = {
         ...fraudPolicy,
         rules: {
@@ -127,7 +158,7 @@ describe('PolicyLoaderService', () => {
         }
       };
       const errors = service.validatePolicy(policy);
-      expect(errors).toContain('supermajority algorithm requires threshold > 0.5');
+      expect(errors.some((e) => e.includes('threshold'))).toBe(true);
     });
 
     it('accepts supermajority with threshold > 0.5', () => {
@@ -139,10 +170,10 @@ describe('PolicyLoaderService', () => {
         }
       };
       const errors = service.validatePolicy(policy);
-      expect(errors).not.toContain('supermajority algorithm requires threshold > 0.5');
+      expect(errors).toEqual([]);
     });
 
-    it('returns error when weighted algorithm has no weights', () => {
+    it('returns error when weighted algorithm has no weights (caught by the real upstream schema)', () => {
       const policy = {
         ...fraudPolicy,
         rules: {
@@ -151,10 +182,10 @@ describe('PolicyLoaderService', () => {
         }
       };
       const errors = service.validatePolicy(policy);
-      expect(errors).toContain('weighted algorithm requires a non-empty weights map');
+      expect(errors.some((e) => e.includes('weights'))).toBe(true);
     });
 
-    it('returns error when weighted algorithm has empty weights map', () => {
+    it('returns error when weighted algorithm has empty weights map (caught by the real upstream schema)', () => {
       const policy: PolicyDefinition = {
         ...fraudPolicy,
         rules: {
@@ -163,10 +194,10 @@ describe('PolicyLoaderService', () => {
         }
       };
       const errors = service.validatePolicy(policy);
-      expect(errors).toContain('weighted algorithm requires a non-empty weights map');
+      expect(errors.some((e) => e.includes('weights'))).toBe(true);
     });
 
-    it('returns error when designated_role authority has empty roles', () => {
+    it('returns error when designated_role authority has empty roles (caught by the real upstream schema)', () => {
       const policy: PolicyDefinition = {
         ...fraudPolicy,
         rules: {
@@ -179,7 +210,7 @@ describe('PolicyLoaderService', () => {
         }
       };
       const errors = service.validatePolicy(policy);
-      expect(errors).toContain('designated_role authority requires a non-empty designated_roles array');
+      expect(errors.some((e) => e.includes('designated_roles'))).toBe(true);
     });
 
     it('accepts designated_role authority with non-empty roles', () => {
@@ -195,10 +226,10 @@ describe('PolicyLoaderService', () => {
         }
       };
       const errors = service.validatePolicy(policy);
-      expect(errors).not.toContain('designated_role authority requires a non-empty designated_roles array');
+      expect(errors).toEqual([]);
     });
 
-    it('returns error when minimum_confidence > 1', () => {
+    it('returns error when minimum_confidence > 1 (caught by the real upstream schema)', () => {
       const policy: PolicyDefinition = {
         ...fraudPolicy,
         rules: {
@@ -207,10 +238,10 @@ describe('PolicyLoaderService', () => {
         }
       };
       const errors = service.validatePolicy(policy);
-      expect(errors).toContain('minimum_confidence must be between 0 and 1');
+      expect(errors.some((e) => e.includes('minimum_confidence'))).toBe(true);
     });
 
-    it('returns error when minimum_confidence < 0', () => {
+    it('returns error when minimum_confidence < 0 (caught by the real upstream schema)', () => {
       const policy: PolicyDefinition = {
         ...fraudPolicy,
         rules: {
@@ -219,7 +250,7 @@ describe('PolicyLoaderService', () => {
         }
       };
       const errors = service.validatePolicy(policy);
-      expect(errors).toContain('minimum_confidence must be between 0 and 1');
+      expect(errors.some((e) => e.includes('minimum_confidence'))).toBe(true);
     });
 
     it('returns error when veto_threshold < 1 and critical_severity_vetoes is true', () => {
@@ -260,7 +291,12 @@ describe('PolicyLoaderService', () => {
       );
     });
 
-    it('does not warn when veto_threshold is 0 and critical_severity_vetoes is false', () => {
+    // Inverted per #81 / plan Phase 2: this test previously asserted 0 was silently accepted
+    // as the "vetoes are off" sentinel. That's exactly what steered policy authors toward the
+    // one value that fails the real upstream schema's `veto_threshold: { minimum: 1 }` — the
+    // schema-conformant way to say "off" is to omit the key entirely, not set it to 0. Now
+    // both the hand-rolled dead-config warning AND the real schema flag this independently.
+    it('warns when veto_threshold is 0 and critical_severity_vetoes is false', () => {
       const policy: PolicyDefinition = {
         ...fraudPolicy,
         rules: {
@@ -269,7 +305,10 @@ describe('PolicyLoaderService', () => {
         }
       };
       const errors = service.validatePolicy(policy);
-      expect(errors).toHaveLength(0);
+      expect(errors).toContain(
+        'veto_threshold is set but critical_severity_vetoes is false — the threshold is never read'
+      );
+      expect(errors.length).toBeGreaterThanOrEqual(2);
     });
 
     it('returns error when schema_version exceeds the highest version the runtime supports', () => {
@@ -314,7 +353,7 @@ describe('PolicyLoaderService', () => {
         }
       };
       (fsMock.readdirSync as jest.Mock).mockReturnValue(['policy.bad.json']);
-      fsMock.readFileSync.mockReturnValue(JSON.stringify(invalidPolicy));
+      fsMock.readFileSync.mockImplementation(delegatingReadFileSync(() => JSON.stringify(invalidPolicy)));
       service = new PolicyLoaderService();
       const policies = service.listAvailablePolicies();
       // Policy is still loaded despite warnings (non-fatal validation)

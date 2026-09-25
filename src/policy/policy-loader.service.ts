@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { PolicyDefinition } from '../contracts/policy';
+import { PolicyRulesValidator } from './policy-rules-validator';
 
 /**
  * Mirrors `SUPPORTED_SCHEMA_VERSIONS` in macp-runtime's
@@ -16,10 +17,16 @@ const MAX_SUPPORTED_SCHEMA_VERSION = 3;
 export class PolicyLoaderService {
   private readonly logger = new Logger(PolicyLoaderService.name);
   private readonly policiesDir: string;
+  private readonly rulesValidator: PolicyRulesValidator;
   private cache: Map<string, PolicyDefinition> | undefined;
 
   constructor() {
     this.policiesDir = path.resolve(process.cwd(), 'policies');
+    // Constructed internally rather than injected — this repo has no other consumer of
+    // PolicyRulesValidator today, and DI would touch app.module.ts plus every
+    // `new PolicyLoaderService()` call site across the spec files for no behavioral benefit.
+    // See #81 / plan Phase 2.
+    this.rulesValidator = new PolicyRulesValidator();
   }
 
   loadPolicy(policyId: string): PolicyDefinition | undefined {
@@ -53,50 +60,33 @@ export class PolicyLoaderService {
       return errors;
     }
 
-    const { voting, objection_handling, evaluation, commitment } = policy.rules;
-
-    if (voting) {
-      if (voting.algorithm === 'supermajority' && (voting.threshold == null || voting.threshold <= 0.5)) {
-        errors.push('supermajority algorithm requires threshold > 0.5');
-      }
-      if (voting.algorithm === 'weighted' && (!voting.weights || Object.keys(voting.weights).length === 0)) {
-        errors.push('weighted algorithm requires a non-empty weights map');
-      }
-    }
+    const { objection_handling } = policy.rules;
 
     if (objection_handling) {
+      // Stricter than the upstream schema, deliberately: the schema defaults an absent
+      // veto_threshold to 1 and only reads it when critical_severity_vetoes is true, but
+      // requiring it explicitly here makes the intent visible in the policy file itself.
+      // Costs nothing — this case is schema-legal either way. Kept per #81 / plan Phase 2;
+      // not a redundant check, do not remove alongside the ones below.
       if (
         objection_handling.critical_severity_vetoes &&
         (objection_handling.veto_threshold == null || objection_handling.veto_threshold < 1)
       ) {
         errors.push('veto_threshold must be >= 1 when critical_severity_vetoes is true');
       }
-      if (
-        !objection_handling.critical_severity_vetoes &&
-        objection_handling.veto_threshold != null &&
-        objection_handling.veto_threshold !== 0
-      ) {
+      // Corrected per #81 / plan Phase 2: previously excluded veto_threshold === 0 from this
+      // warning, which is exactly what steered authors toward the one value (0) that fails
+      // the real upstream schema's `minimum: 1`. Any presence of veto_threshold when vetoes
+      // are off is now flagged — the schema-conformant fix is to omit the key entirely.
+      if (!objection_handling.critical_severity_vetoes && objection_handling.veto_threshold != null) {
         errors.push('veto_threshold is set but critical_severity_vetoes is false — the threshold is never read');
       }
     }
 
-    if (evaluation) {
-      if (
-        evaluation.minimum_confidence != null &&
-        (evaluation.minimum_confidence < 0 || evaluation.minimum_confidence > 1)
-      ) {
-        errors.push('minimum_confidence must be between 0 and 1');
-      }
-    }
-
-    if (commitment) {
-      if (
-        commitment.authority === 'designated_role' &&
-        (!commitment.designated_roles || commitment.designated_roles.length === 0)
-      ) {
-        errors.push('designated_role authority requires a non-empty designated_roles array');
-      }
-    }
+    // Real upstream schema validation (#81) — supersedes the hand-rolled supermajority-
+    // threshold, weighted-weights, minimum_confidence-range, and designated_role checks that
+    // used to live here; all four are now exactly covered by the vendored schema instead.
+    errors.push(...this.rulesValidator.validateRules(policy.mode, policy.rules));
 
     return errors;
   }
