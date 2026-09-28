@@ -16,6 +16,49 @@ import {
 } from '../contracts/registry';
 import { loadYamlWithIncludes } from './include-resolver';
 
+/**
+ * A parsed document that is not a mapping at all — `null` (a comment-only placeholder), `''` (a
+ * marker-only `---`), a sequence, or a bare scalar — is not a *malformed* pack; it is *not a pack
+ * document*. The loader contains the two classes differently, on purpose:
+ *
+ *   - not a pack document at all              -> log, skip this pack (or this version), keep
+ *                                                serving everything else
+ *   - claims to be a pack but is wrong        -> AppException(INVALID_PACK_DATA), which `loadAll`
+ *     (apiVersion / kind / metadata.slug)        deliberately rethrows, failing the whole load
+ *
+ * Restoring that split is mostly a REQUIREMENT of the js-yaml 4 -> 5 upgrade rather than a new
+ * policy. Under v4 the document-less spellings parsed to `null`, so the unguarded `data.apiVersion`
+ * below raised a TypeError — not an AppException, and therefore caught by `loadAll`'s per-pack
+ * catch. Under v5 `'---\n'` parses to `''` instead, and `''.apiVersion` is `undefined` rather than
+ * a throw, so it reached the apiVersion check and raised INVALID_PACK_DATA, which `loadAll`
+ * rethrows.
+ *
+ * "Mostly", with the exception named rather than glossed: an INDENTED `'  ---\n'` parsed to the
+ * string `'---'` under v4, not to `null`, and a string fails the apiVersion check — so that one
+ * spelling took the whole load down under v4 as well. For it this guard is a new and better policy,
+ * not a restoration. Seven of the eight spellings pinned in the spec are restorations; that one is
+ * an improvement.
+ *
+ * The consequence was that two spellings of the same placeholder differed by the entire catalog:
+ * `'# TODO\n'` cost one pack, while `'---\n# TODO\n'` returned HTTP 500 INVALID_PACK_DATA from
+ * `/packs`, `/scenarios`, `/launch/compile` and every other catalog route — permanently, because
+ * the default `REGISTRY_CACHE_TTL_MS=0` reloads on every request and so never caches past it.
+ *
+ * Guarding the shape explicitly puts both spellings on the contained path deliberately, with a
+ * message that names the real problem, instead of leaving the blast radius to depend on which
+ * falsy value js-yaml happened to choose.
+ */
+function isMappingDocument(data: unknown): data is Record<string, unknown> {
+  return typeof data === 'object' && data !== null && !Array.isArray(data);
+}
+
+function describeDocumentShape(data: unknown): string {
+  if (data === null) return 'null';
+  if (Array.isArray(data)) return 'a sequence';
+  if (data === '') return 'an empty document';
+  return `a ${typeof data}`;
+}
+
 @Injectable()
 export class FileRegistryLoader {
   private readonly logger = new Logger(FileRegistryLoader.name);
@@ -55,6 +98,9 @@ export class FileRegistryLoader {
 
       try {
         const pack = await this.loadPackFile(packYamlPath);
+        // null = "pack.yaml is not a pack document"; already logged, and deliberately contained to
+        // this one pack rather than failing the whole load. See isMappingDocument() above.
+        if (pack === null) continue;
         const scenarios = await this.discoverScenarios(packDir);
         packs.set(pack.metadata.slug, { pack, scenarios });
       } catch (err) {
@@ -67,8 +113,13 @@ export class FileRegistryLoader {
     return { packs, loadedAt: Date.now() };
   }
 
-  private async loadPackFile(filePath: string): Promise<PackFile> {
-    const data = this.parseYamlFile(filePath) as PackFile;
+  private async loadPackFile(filePath: string): Promise<PackFile | null> {
+    const parsed = this.parseYamlFile(filePath);
+    if (!isMappingDocument(parsed)) {
+      this.logger.error(`skipping pack: ${filePath} must contain a YAML mapping, got ${describeDocumentShape(parsed)}`);
+      return null;
+    }
+    const data = parsed as unknown as PackFile;
 
     if (data.apiVersion !== 'scenarios.macp.dev/v1') {
       throw new AppException(
@@ -133,6 +184,11 @@ export class FileRegistryLoader {
       if (!scenarioYamlExists) continue;
 
       const scenario = await this.loadScenarioFile(scenarioYamlPath);
+      // null = "scenario.yaml is not a scenario document"; already logged. Contained to this one
+      // version: the pack and its other versions still load. (Under js-yaml 4 the equivalent input
+      // raised a TypeError that unwound to loadAll's catch and cost the whole pack — narrowing that
+      // to the offending version is a deliberate improvement, not an accident of the upgrade.)
+      if (scenario === null) continue;
       const templates = await this.discoverTemplates(versionDir);
       versions.set(version, { scenario, templates });
     }
@@ -140,8 +196,15 @@ export class FileRegistryLoader {
     return versions;
   }
 
-  private async loadScenarioFile(filePath: string): Promise<ScenarioVersionFile> {
-    const data = this.parseYamlFile(filePath) as ScenarioVersionFile;
+  private async loadScenarioFile(filePath: string): Promise<ScenarioVersionFile | null> {
+    const parsed = this.parseYamlFile(filePath);
+    if (!isMappingDocument(parsed)) {
+      this.logger.error(
+        `skipping version: ${filePath} must contain a YAML mapping, got ${describeDocumentShape(parsed)}`
+      );
+      return null;
+    }
+    const data = parsed as unknown as ScenarioVersionFile;
 
     if (data.apiVersion !== 'scenarios.macp.dev/v1') {
       throw new AppException(

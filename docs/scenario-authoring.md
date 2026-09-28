@@ -214,6 +214,57 @@ launch:
 
 **When to reach for it.** Any time the same fragment is copy-pasted across two or more scenarios, or any time a single field crosses ~50 lines of inline data.
 
+## Writing scalars: pack YAML accepts only JSON spellings
+
+Pack files are parsed with js-yaml's `JSON_SCHEMA`, deliberately — it keeps YAML 1.1's surprise
+coercions out, so a mode name like `on` or a version like `2024-01-15` stays the text you wrote
+instead of turning into a boolean or a `Date`.
+
+The trade-off is that **`null`, `true`, `false` and numbers must be written the way JSON writes
+them.** Anything outside that grammar is a plain string. This is silent — nothing errors, the value
+simply arrives as text:
+
+| If you write | You get | Write this instead |
+|---|---|---|
+| `key: ~` · `key: Null` · `key: NULL` | the strings `'~'`, `'Null'`, `'NULL'` | `key: null`, or omit the key |
+| `key:` with no value | the empty string `''` | `key: null`, or omit the key |
+| `key: True` · `key: TRUE` | the strings `'True'`, `'TRUE'` | `key: true` |
+| `key: False` · `key: FALSE` | the strings `'False'`, `'FALSE'` | `key: false` |
+| `key: +5` · `key: .5` · `key: 007` | the strings `'+5'`, `'.5'`, `'007'` | `key: 5`, `key: 0.5`, `key: 7` |
+| `key: 0x1F` · `key: 0o17` · `key: 0b101` | the strings `'0x1F'`, `'0o17'`, `'0b101'` | the decimal value |
+| `key: 1_000` | the string `'1_000'` | `key: 1000` |
+| `key: .inf` · `key: .nan` | the strings `'.inf'`, `'.nan'` | avoid; use a real bound |
+
+`null`, `true`, `false`, `42`, `-5` and `0.5` all behave exactly as you would expect.
+
+**The two that bite hardest:**
+
+- **`description: ~`** meaning "no description" ships a commitment whose description is a literal
+  tilde. `npm run scenario:lint` sees a non-empty string and reports nothing.
+- **`someFlag: False`** is the string `'False'`, which is **truthy** in JavaScript — so a flag you
+  meant to switch off reads as on. Always lowercase `false`.
+
+If a value must be absent, prefer omitting the key entirely over any spelling of null.
+
+## Placeholder and half-written pack files
+
+A `pack.yaml` or `scenario.yaml` that contains no document at all — empty, whitespace only, comments
+only, a bare `---`, or a sequence or scalar where a mapping belongs — is treated as **"not a pack
+document"** rather than as a broken one. The loader logs an error naming the file and the shape it
+found, then skips just that pack (or, for `scenario.yaml`, just that version) and carries on serving
+everything else. Scaffolding a new pack therefore cannot take the catalog down.
+
+That containment is deliberate and is tested, because it is **not** how a *malformed* file behaves. A
+file that does contain a mapping but gets `apiVersion` or `kind` wrong — or, for `pack.yaml` only, a
+missing `metadata.slug` — is a real error: it raises `INVALID_PACK_DATA` and fails the entire
+registry load, so every catalog route returns HTTP 500 until it is fixed. The same is true of YAML
+that js-yaml cannot parse at all, including two documents in one file (`---` twice) and a `%YAML`
+directive with no following `---`.
+
+The rule of thumb: **a file you have not written yet costs you that one pack; a file you have written
+wrongly costs you the whole catalog.** If you are scaffolding, leave the file empty or commented out
+rather than half-filled with a wrong `apiVersion`.
+
 ## Sharing fragments across scenarios
 
 Conventionally, fragments live under `packs/_shared/` (the leading underscore tells the loader to skip the directory during pack discovery). The seeded layout:

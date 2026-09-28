@@ -1,8 +1,11 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { Logger } from '@nestjs/common';
 import { FileRegistryLoader } from './file-registry.loader';
 import { AppConfigService } from '../config/app-config.service';
+import { AppException } from '../errors/app-exception';
+import { ErrorCode } from '../errors/error-codes';
 
 describe('FileRegistryLoader', () => {
   let loader: FileRegistryLoader;
@@ -167,6 +170,130 @@ spec:
         { id: 'a', role: 'r1', agentRef: 'a' },
         { id: 'b', role: 'r2', agentRef: 'b' }
       ]);
+    });
+  });
+
+  /**
+   * The js-yaml 4 -> 5 upgrade changed what a document-less file parses to: every spelling used to
+   * yield `null`, and `'---\n'` now yields `''`. Because the loader dereferenced the parsed document
+   * unguarded, that flipped a placeholder pack.yaml from "one pack skipped" (TypeError, swallowed by
+   * loadAll's per-pack catch) to "HTTP 500 INVALID_PACK_DATA on every catalog route" (AppException,
+   * which loadAll rethrows) -- and with REGISTRY_CACHE_TTL_MS=0 it never cleared.
+   *
+   * These cases pin BOTH halves of the intended split, because the defect was not that either half
+   * was wrong on its own -- it was that two spellings of the same placeholder landed on opposite
+   * halves. Deleting the "still fails the whole load" case would let a future change quietly demote
+   * a real INVALID_PACK_DATA into a silently-vanishing pack.
+   */
+  describe('a file that is not a pack document costs only that pack', () => {
+    let tmpDir: string;
+    const goodPack = 'apiVersion: scenarios.macp.dev/v1\nkind: ScenarioPack\nmetadata:\n  slug: good\n  name: Good\n';
+    let errorLogs: string[];
+
+    const scenarioYaml = (slug: string) => `apiVersion: scenarios.macp.dev/v1
+kind: ScenarioVersion
+metadata:
+  pack: ${slug}
+  scenario: x
+  version: 1.0.0
+  name: X
+spec:
+  runtime: { kind: rust, version: v1 }
+  inputs:
+    schema: { type: object }
+  launch:
+    modeName: m
+    modeVersion: '1'
+    configurationVersion: c
+    ttlMs: 1000
+    participants: []
+`;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'loader-shape-'));
+      fs.mkdirSync(path.join(tmpDir, 'good'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, 'good/pack.yaml'), goodPack);
+      errorLogs = [];
+      jest.spyOn(Logger.prototype, 'error').mockImplementation((msg: unknown) => {
+        errorLogs.push(String(msg));
+      });
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    const load = async () => {
+      const config = { packsDir: tmpDir } as AppConfigService;
+      return new FileRegistryLoader(config).loadAll();
+    };
+
+    // The first row is the js-yaml 5 regression itself; the rest are the adjacent spellings that
+    // must not diverge from it, including the two `''` producers the earlier normalisation missed.
+    it.each([
+      ['a marker-only document', '---\n', 'an empty document'],
+      ['a marker plus a comment', '---\n# TODO: write this pack\n', 'an empty document'],
+      ['an indented marker', '  ---\n', 'an empty document'],
+      ['a comment-only document', '# TODO: write this pack\n', 'null'],
+      ['an empty file', '', 'null'],
+      ['an explicit null', 'null\n', 'null'],
+      ['a sequence', '- a\n- b\n', 'a sequence'],
+      ['a bare scalar', 'just a string\n', 'a string']
+    ])('skips a pack whose pack.yaml is %s, and keeps serving the rest', async (_label, body, shape) => {
+      fs.mkdirSync(path.join(tmpDir, 'bad'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, 'bad/pack.yaml'), body);
+
+      const snapshot = await load();
+
+      expect(snapshot.packs.has('good')).toBe(true);
+      expect(snapshot.packs.size).toBe(1);
+      expect(errorLogs.some((m) => m.includes('bad/pack.yaml') && m.includes(`got ${shape}`))).toBe(true);
+    });
+
+    it('skips only the offending version when scenario.yaml is document-less, not the whole pack', async () => {
+      const base = path.join(tmpDir, 'good/scenarios/x');
+      fs.mkdirSync(path.join(base, '1.0.0'), { recursive: true });
+      fs.mkdirSync(path.join(base, '2.0.0'), { recursive: true });
+      fs.writeFileSync(path.join(base, '1.0.0/scenario.yaml'), '---\n');
+      fs.writeFileSync(path.join(base, '2.0.0/scenario.yaml'), scenarioYaml('good'));
+
+      const snapshot = await load();
+
+      const versions = snapshot.packs.get('good')?.scenarios.get('x')?.versions;
+      expect(versions?.has('2.0.0')).toBe(true);
+      expect(versions?.has('1.0.0')).toBe(false);
+      expect(errorLogs.some((m) => m.includes('1.0.0/scenario.yaml'))).toBe(true);
+    });
+
+    // The other half of the split. A file that IS a mapping but carries the wrong apiVersion/kind is
+    // a malformed pack, not a missing one, and must still fail the entire load loudly.
+    it.each([
+      ['apiVersion', 'apiVersion: wrong/v9\nkind: ScenarioPack\nmetadata:\n  slug: bad\n  name: Bad\n'],
+      ['kind', 'apiVersion: scenarios.macp.dev/v1\nkind: NotAPack\nmetadata:\n  slug: bad\n  name: Bad\n'],
+      ['metadata.slug', 'apiVersion: scenarios.macp.dev/v1\nkind: ScenarioPack\nmetadata:\n  name: Bad\n']
+    ])('still fails the whole load when pack.yaml has a bad %s', async (_label, body) => {
+      fs.mkdirSync(path.join(tmpDir, 'bad'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, 'bad/pack.yaml'), body);
+
+      await expect(load()).rejects.toThrow(AppException);
+      await expect(load()).rejects.toMatchObject({ errorCode: ErrorCode.INVALID_PACK_DATA });
+    });
+
+    // Input js-yaml itself rejects falls on the LOUD side of the split, with the malformed packs:
+    // `parseYamlFile` wraps the YAMLException in AppException(INVALID_PACK_DATA), and `loadAll`
+    // rethrows AppException, so these take the whole catalog down rather than costing one pack.
+    // That is deliberate and matches js-yaml 4 — unparseable YAML is a real error, not an unwritten
+    // file — and it is what the assertion below pins. (An earlier version of this comment claimed
+    // the per-pack catch contained these. It does not, and the assertion two lines down says so.)
+    it.each([
+      ['a directive with no document', '%YAML 1.2\n'],
+      ['two documents in one file', '---\n---\n']
+    ])('reports %s as a load failure rather than treating it as empty', async (_label, body) => {
+      fs.mkdirSync(path.join(tmpDir, 'bad'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, 'bad/pack.yaml'), body);
+
+      await expect(load()).rejects.toMatchObject({ errorCode: ErrorCode.INVALID_PACK_DATA });
     });
   });
 });

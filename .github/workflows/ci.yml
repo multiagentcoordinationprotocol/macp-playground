@@ -3,8 +3,17 @@ name: CI
 on:
   push:
     branches: [main]
+  # No `branches:` filter on purpose. That key filters on the PR's BASE branch, so
+  # `branches: [main]` silently gave **zero** CI to any stacked pull request — one opened
+  # against another PR's branch rather than against `main`. Not a theoretical gap: it was
+  # found on this repo's own dependency-upgrade stack, where the PR carrying every version
+  # bump had never once run the four gates that exist to catch exactly those bumps, while
+  # still presenting as a healthy PR because the only check reporting on it was a skipped
+  # auto-merge job. A stacked PR is precisely where a gate is most needed and was the one
+  # place it did not run. Every PR now runs CI regardless of base; the `docker` job's
+  # push-vs-load behaviour keys off `github.event_name`, not the base branch, so a stacked
+  # PR loads its image for the smokes and pushes nothing.
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -109,7 +118,7 @@ jobs:
       # fails. `--ignore-installed` stops an already-present package from short-circuiting the
       # resolver and hiding a conflict.
       - name: Resolve agent framework pins (gate — a conflict here used to surface only in `docker`)
-        run: pip install --dry-run --ignore-installed -r agents/requirements.txt
+        run: pip install --dry-run --ignore-installed -c agents/constraints.txt -r agents/requirements.txt
       - run: pip install -r agents/requirements-dev.txt
       - name: Lint Python workers
         run: ruff check agents/
@@ -233,7 +242,7 @@ jobs:
       #
       # What it covers, precisely — claim no more than this:
       #   * `crewai.Agent`/`Task`/`Crew` exist and accept this repo's exact kwargs, and
-      #     `ChatOpenAI(model=, temperature=, api_key=)` at crew.py:68 and chain.py:40 is
+      #     `ChatOpenAI(model=, temperature=, api_key=)` at crew.py:104 and chain.py:40 is
       #     reached and does not raise. A renamed symbol or changed signature goes red here.
       #   * `HAS_LANGCHAIN_OPENAI` covers crew.py's own `langchain_openai` import, which is
       #     otherwise swallowed and which NOTHING on the built Crew can reveal: crewai coerces

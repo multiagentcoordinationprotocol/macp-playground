@@ -101,7 +101,9 @@ spec:
       ['a boolean', 'false'],
       ['a mapping', '{ nested: value }'],
       ['a sequence', '[a, b]'],
-      ['an explicit null', '~'],
+      ['an explicit null', 'null'],
+      // NOT '~'. Under js-yaml 5 that is the STRING '~', which is a legitimate one-character
+      // description and correctly produces no finding — pinned separately below. See DECISIONS.md.
       ['an empty string', "''"],
       ['a whitespace-only string', "'   '"]
     ])('warns (never throws) when a commitment description is %s', async (_label, yamlValue) => {
@@ -141,6 +143,45 @@ spec:
         expect(code).toBe(0);
         const logLines = logSpy.mock.calls.map((call) => String(call[0]));
         expect(logLines.some((line) => line.includes('WARN') && line.includes('probe-commitment'))).toBe(true);
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    // Counterpart of the runLint `~` case: this is the block the `['an explicit null', '~']` row was
+    // moved out of, so the deliberate post-js-yaml-5 outcome is pinned at both entry points.
+    it('emits NO description warning for description: ~ — that is the string "~" under js-yaml 5', async () => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-validate-tilde-'));
+      try {
+        fs.mkdirSync(path.join(tmp, 'tildeprobe/scenarios/probe/1.0.0'), { recursive: true });
+        fs.writeFileSync(
+          path.join(tmp, 'tildeprobe/pack.yaml'),
+          'apiVersion: scenarios.macp.dev/v1\nkind: ScenarioPack\nmetadata: { slug: tildeprobe, name: Tilde }\n'
+        );
+        fs.writeFileSync(
+          path.join(tmp, 'tildeprobe/scenarios/probe/1.0.0/scenario.yaml'),
+          `apiVersion: scenarios.macp.dev/v1
+kind: ScenarioVersion
+metadata: { pack: tildeprobe, scenario: probe, version: 1.0.0, name: Probe }
+spec:
+  inputs: { schema: { type: object } }
+  launch:
+    modeName: macp.mode.decision.v1
+    modeVersion: '1'
+    configurationVersion: c
+    ttlMs: 1000
+    commitments:
+      - id: probe-commitment
+        description: ~
+`
+        );
+        const code = await runValidate({
+          target: path.join(tmp, 'tildeprobe/scenarios/probe/1.0.0/scenario.yaml'),
+          packsRoot: tmp
+        });
+        expect(code).toBe(0);
+        const logLines = logSpy.mock.calls.map((call) => String(call[0]));
+        expect(logLines.some((line) => line.includes('WARN') && line.includes('probe-commitment'))).toBe(false);
       } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
       }
@@ -365,7 +406,9 @@ spec:
       ['a boolean', 'false'],
       ['a mapping', '{ nested: value }'],
       ['a sequence', '[a, b]'],
-      ['an explicit null', '~'],
+      ['an explicit null', 'null'],
+      // NOT '~'. Under js-yaml 5 that is the STRING '~', which is a legitimate one-character
+      // description and correctly produces no finding — pinned separately below. See DECISIONS.md.
       ['an empty string', "''"],
       ['a whitespace-only string', "'   '"]
     ])('reports a finding (never throws) when a commitment description is %s', async (_label, yamlValue) => {
@@ -414,6 +457,97 @@ spec:
         // nothing — a thrown TypeError never becomes a report line at all, it rejects the promise.
         const logLines = logSpy.mock.calls.map((call) => String(call[0]));
         expect(logLines.some((line) => line.includes('scenario:lint') && line.includes('1 error(s)'))).toBe(true);
+      } finally {
+        logSpy.mockRestore();
+        errSpy.mockRestore();
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    // The js-yaml 5 counterpart to the block above, and the case that CAUGHT the upgrade's biggest
+    // behaviour change. Under js-yaml 4 `description: ~` parsed as null and produced a finding;
+    // under 5 it is the one-character STRING '~' and correctly produces none, because v5's
+    // JSON_SCHEMA accepts only JSON's spelling of null. That is a deliberate, documented outcome
+    // (see DECISIONS.md — we chose to document rather than coerce '~' back to null, which would
+    // break a legitimate `~` description). Asserting it at the CLI layer is what stops the decision
+    // being silently reversed: a future coercion in scripts/scenario/lint.ts, or a js-yaml release
+    // that restored `~` -> null, would both turn this red.
+    // Document-level counterpart of the commitment-description guards. A pack.yaml can parse to a
+    // non-mapping in several ordinary ways, and `lintPack` dereferences the parsed document directly
+    // — so `null` used to throw a TypeError that aborted the entire run, every remaining pack going
+    // unchecked. The `null` case crashed even before the js-yaml upgrade; the marker-only case is new
+    // to js-yaml 5 (v4 gave null, v5 gives ''); the directive case is rejected by both versions and
+    // must stay a reported load failure rather than being swallowed as "empty".
+    it.each([
+      ['a bare null document', 'null\n', 'must contain a YAML mapping, got null'],
+      ['a marker-only document', '---\n', 'must contain a YAML mapping, got string'],
+      ['a sequence instead of a mapping', '- one\n- two\n', 'must contain a YAML mapping, got a sequence'],
+      ['a directive with no document', '%YAML 1.2\n', 'failed to load'],
+      ['two documents in one file', '---\n---\n', 'failed to load']
+    ])('reports, never crashes, when pack.yaml is %s', async (_label, packYaml, expected) => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-lint-bad-pack-'));
+      try {
+        fs.mkdirSync(path.join(tmp, 'packs/badpack'), { recursive: true });
+        fs.writeFileSync(path.join(tmp, 'packs/badpack/pack.yaml'), packYaml);
+
+        // Resolving at all is half the point — a TypeError here rejects the promise and takes the
+        // whole run with it.
+        const code = await runLint({
+          target: path.join(tmp, 'packs'),
+          packsRoot: path.join(tmp, 'packs')
+        });
+
+        expect(code).toBe(1);
+        const errorLines = errSpy.mock.calls.map((call) => String(call[0]));
+        expect(errorLines.some((line) => line.includes(expected))).toBe(true);
+        // And the run reached its summary rather than unwinding.
+        const logLines = logSpy.mock.calls.map((call) => String(call[0]));
+        expect(logLines.some((line) => line.includes('scenario:lint') && line.includes('1 error(s)'))).toBe(true);
+      } finally {
+        logSpy.mockRestore();
+        errSpy.mockRestore();
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    it('reports NO finding for description: ~ — under js-yaml 5 that is the string "~", not null', async () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-lint-tilde-desc-'));
+      try {
+        fs.mkdirSync(path.join(tmp, 'packs/tildeprobe/scenarios/probe/1.0.0'), { recursive: true });
+        fs.writeFileSync(
+          path.join(tmp, 'packs/tildeprobe/pack.yaml'),
+          'apiVersion: scenarios.macp.dev/v1\nkind: ScenarioPack\nmetadata: { slug: tildeprobe, name: Tilde Probe }\n'
+        );
+        fs.writeFileSync(
+          path.join(tmp, 'packs/tildeprobe/scenarios/probe/1.0.0/scenario.yaml'),
+          `apiVersion: scenarios.macp.dev/v1
+kind: ScenarioVersion
+metadata: { pack: tildeprobe, scenario: probe, version: 1.0.0, name: Probe }
+spec:
+  inputs: { schema: { type: object } }
+  launch:
+    modeName: macp.mode.decision.v1
+    modeVersion: '1'
+    configurationVersion: c
+    ttlMs: 1000
+    commitments:
+      - id: probe-commitment
+        description: ~
+`
+        );
+
+        const code = await runLint({
+          target: path.join(tmp, 'packs'),
+          packsRoot: path.join(tmp, 'packs')
+        });
+
+        expect(code).toBe(0);
+        const errorLines = errSpy.mock.calls.map((call) => String(call[0]));
+        expect(errorLines.some((line) => line.includes('probe-commitment'))).toBe(false);
       } finally {
         logSpy.mockRestore();
         errSpy.mockRestore();
@@ -469,6 +603,80 @@ spec:
       const result = await spawnScenarioCli(['lint', 'packs', '--packs-root', 'packs']);
       expect(result.code).toBe(0);
       expect(result.stdout).toContain('error(s)');
+    });
+
+    // The last ungated commander surface, and the one that matters most.
+    //
+    // The three `runNew` tests above call the function directly, bypassing argv parsing entirely —
+    // so nothing covered the path where commander actually resolves flags. That path was BROKEN:
+    // the program-level `-V, --version` shadowed `new`'s own `--version <semver>`, and
+    // `scenario new demo my-sample --version 1.2.3` printed `0.2.0`, exited 0, and created nothing.
+    // Exit 0 is exactly what the bug produces, so asserting on the exit code alone would not have
+    // caught it — this test asserts on the scaffolded FILESYSTEM TREE, at the requested version.
+    //
+    // `new` is also the only subcommand with two positionals, which makes it the shape most
+    // sensitive to commander 15's `.action()` signature change (`(...positionals, command)` becomes
+    // `(...positionals, options, command)`). That is why this gate lands before the bump, not with
+    // it: if the commander upgrade goes red, the cause is unambiguously commander.
+    it('scenario new honours --version through real argv and scaffolds that exact version', async () => {
+      const tmpPacks = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-spawn-new-'));
+      try {
+        // The starter template's !include points at ../../../../_shared/..., so a bare temp dir
+        // scaffolds a scenario that cannot validate. Mirrors the runNew beforeEach above: fixture
+        // _shared first, then production _shared over the top for the fragments fixtures lack.
+        fs.cpSync(path.join(FIXTURES_PACKS, '_shared'), path.join(tmpPacks, '_shared'), { recursive: true });
+        fs.cpSync(path.resolve(REPO_ROOT, 'packs/_shared'), path.join(tmpPacks, '_shared'), {
+          recursive: true,
+          force: true
+        } as fs.CopySyncOptions);
+
+        const result = await spawnScenarioCli([
+          'new',
+          'demo',
+          'my-sample',
+          '--version',
+          '1.2.3',
+          '--packs-root',
+          tmpPacks
+        ]);
+
+        expect(result.code).toBe(0);
+        // 1.2.3, not commander's program version and not the option's 1.0.0 default.
+        const versionDir = path.join(tmpPacks, 'demo/scenarios/my-sample/1.2.3');
+        expect(fs.existsSync(path.join(versionDir, 'scenario.yaml'))).toBe(true);
+        expect(fs.existsSync(path.join(tmpPacks, 'demo/pack.yaml'))).toBe(true);
+        // The default must NOT also have been created — that would mean --version was ignored and
+        // the option default silently applied.
+        expect(fs.existsSync(path.join(tmpPacks, 'demo/scenarios/my-sample/1.0.0'))).toBe(false);
+        // stdout names the version too, so a future refactor cannot satisfy the tree check alone.
+        expect(result.stdout).toContain('demo/my-sample@1.2.3');
+
+        // And the scaffolded tree is actually valid — the scaffold is worthless if it is not.
+        const validateResult = await spawnScenarioCli([
+          'validate',
+          path.join(versionDir, 'scenario.yaml'),
+          '--packs-root',
+          tmpPacks
+        ]);
+        expect(validateResult.code).toBe(0);
+      } finally {
+        fs.rmSync(tmpPacks, { recursive: true, force: true });
+      }
+    });
+
+    it('scenario --cli-version reports the CLI version without shadowing the new subcommand', async () => {
+      const version = await spawnScenarioCli(['--cli-version']);
+      expect(version.code).toBe(0);
+      expect(version.stdout.trim()).toBe('0.2.0');
+
+      // The rename must be visible in --help, since that is the only place a user discovers it.
+      const help = await spawnScenarioCli(['--help']);
+      expect(help.code).toBe(0);
+      expect(help.stdout).toContain('--cli-version');
+      // And the bare `--version` must no longer be a PROGRAM flag: commander treats an unknown
+      // program-level option as an error, which is precisely what stops it shadowing `new`'s.
+      const shadowed = await spawnScenarioCli(['--version']);
+      expect(shadowed.code).not.toBe(0);
     });
   });
 });

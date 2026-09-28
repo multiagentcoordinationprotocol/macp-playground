@@ -199,4 +199,4 @@ Add an entry to `EXAMPLE_AGENT_DEFINITIONS` in `src/example-agents/example-agent
    `bootstrap.auth_token`.
 4. **Validate manifests before spawn** — bad config should fail fast with clear errors
 5. **Framework workers must gracefully fall back** when framework libraries aren't installed
-6. **Respect direct-agent-auth invariants** — identity flows through `bootstrap.runtime.bearerToken`; the SDK enforces `expectedSender` matching the authenticated sender (RFC-MACP-0004 §4). See `docs/direct-agent-auth.md` for the end-to-end flow.
+6. **Respect direct-agent-auth invariants** — identity flows through `bootstrap.auth_token` (mirrored to the `MACP_RUNTIME_TOKEN` env var by `src/hosting/adapters/agent-env.ts`); the SDK enforces `expectedSender` matching the authenticated sender (RFC-MACP-0004 §4). See `docs/direct-agent-auth.md` for the end-to-end flow.

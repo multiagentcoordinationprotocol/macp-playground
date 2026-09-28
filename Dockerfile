@@ -18,10 +18,22 @@ RUN apt-get update \
   && groupadd -r appgroup \
   && useradd -r -g appgroup appuser
 
-# Install Python agent framework dependencies (LangGraph, LangChain, CrewAI, macp-sdk-python)
+# Install Python agent framework dependencies (LangGraph, LangChain, CrewAI, macp-sdk-python).
+#
+# `-c agent-constraints.txt` pins the full transitive closure. requirements.txt pins only the six
+# direct dependencies, which leaves everything underneath them floating — so a bad `instructor`,
+# `litellm` or `pydantic` release could break this build with no change in the repo at all. The
+# constraints file is generated against THIS base image (Debian trixie system Python), not a clean
+# venv, because `--break-system-packages` means /usr/lib/python3/dist-packages participates in the
+# resolution; a venv-generated file would not match what installs here. Regenerate it in a
+# node:26-slim container whenever requirements.txt changes — and after regenerating, re-add the
+# `packaging` pin by hand. Debian's python3-pip already provides packaging, so the generator never
+# emits it, which silently left it the one floating package in the closure (the CI gate runs
+# --ignore-installed and so resolved a different version than the image shipped).
 COPY agents/requirements.txt /tmp/agent-requirements.txt
-RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/agent-requirements.txt \
-  && rm /tmp/agent-requirements.txt
+COPY agents/constraints.txt /tmp/agent-constraints.txt
+RUN pip3 install --no-cache-dir --break-system-packages -c /tmp/agent-constraints.txt -r /tmp/agent-requirements.txt \
+  && rm /tmp/agent-requirements.txt /tmp/agent-constraints.txt
 
 COPY package.json package-lock.json* .npmrc ./
 ARG NODE_AUTH_TOKEN
@@ -31,6 +43,11 @@ RUN echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc && \
     rm -f .npmrc
 
 COPY --from=builder /app/dist dist/
+# tsconfig.build.json pins tsBuildInfoFile INSIDE dist/ deliberately — without that pin,
+# `rootDir: ./src` relocates it to the repo root and `rm -rf dist && npm run build` exits 0
+# having emitted zero files. Keep the pin; just don't ship the 226 KB compiler cache in a
+# runtime image, where nothing ever reads it.
+RUN rm -f dist/*.tsbuildinfo
 COPY packs/ packs/
 COPY agents/ agents/
 COPY policies/ policies/
