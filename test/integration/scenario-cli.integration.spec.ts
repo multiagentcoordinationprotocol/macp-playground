@@ -91,6 +91,58 @@ spec:
         fs.rmSync(tmp, { recursive: true, force: true });
       }
     });
+
+    // Sibling of the runLint regression guard below. Same latent crash, same fix — `scenario` here
+    // is also an unvalidated cast, and validate's description check must degrade to a WARN entry
+    // rather than a TypeError that aborts validation of everything after it.
+    it.each([
+      ['a number', '0'],
+      ['a truthy number', '42'],
+      ['a boolean', 'false'],
+      ['a mapping', '{ nested: value }'],
+      ['an empty string', "''"],
+      ['a whitespace-only string', "'   '"]
+    ])('warns (never throws) when a commitment description is %s', async (_label, yamlValue) => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-validate-bad-desc-'));
+      try {
+        fs.mkdirSync(path.join(tmp, 'descprobe/scenarios/probe/1.0.0'), { recursive: true });
+        fs.writeFileSync(
+          path.join(tmp, 'descprobe/pack.yaml'),
+          'apiVersion: scenarios.macp.dev/v1\nkind: ScenarioPack\nmetadata: { slug: descprobe, name: Desc Probe }\n'
+        );
+        fs.writeFileSync(
+          path.join(tmp, 'descprobe/scenarios/probe/1.0.0/scenario.yaml'),
+          `apiVersion: scenarios.macp.dev/v1
+kind: ScenarioVersion
+metadata: { pack: descprobe, scenario: probe, version: 1.0.0, name: Probe }
+spec:
+  inputs: { schema: { type: object } }
+  launch:
+    modeName: macp.mode.decision.v1
+    modeVersion: '1'
+    configurationVersion: c
+    ttlMs: 1000
+    commitments:
+      - id: probe-commitment
+        description: ${yamlValue}
+`
+        );
+
+        // Resolving at all is the point: before the fix this rejected with
+        // `TypeError: c.description?.trim is not a function`.
+        const code = await runValidate({
+          target: path.join(tmp, 'descprobe/scenarios/probe/1.0.0/scenario.yaml'),
+          packsRoot: tmp
+        });
+
+        // A missing description is a warning here, not an error — so the run still exits 0.
+        expect(code).toBe(0);
+        const logLines = logSpy.mock.calls.map((call) => String(call[0]));
+        expect(logLines.some((line) => line.includes('WARN') && line.includes('probe-commitment'))).toBe(true);
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('runDryRun (in-process)', () => {
@@ -292,6 +344,68 @@ spec:
         expect(code).toBe(1);
         const errorLines = errSpy.mock.calls.map((call) => String(call[0]));
         expect(errorLines.some((line) => line.includes('FAIL') && line.includes('veto_threshhold'))).toBe(true);
+      } finally {
+        logSpy.mockRestore();
+        errSpy.mockRestore();
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    // Regression guard. `scenario` is an unvalidated `as` cast over arbitrary YAML, so a pack
+    // author can type any value for a commitment description. Both truthiness-guarded forms of
+    // this check crash instead of reporting: `!c.description || !c.description.trim()` throws on
+    // a truthy non-string (42), and `!c.description?.trim()` throws on ANY non-string (0, false).
+    // Either way one malformed pack aborts the run and every remaining pack goes unlinted — a
+    // silent loss of coverage, reported as a stack trace rather than a finding.
+    it.each([
+      ['a number', '0'],
+      ['a truthy number', '42'],
+      ['a boolean', 'false'],
+      ['a mapping', '{ nested: value }'],
+      ['an empty string', "''"],
+      ['a whitespace-only string', "'   '"]
+    ])('reports a finding (never throws) when a commitment description is %s', async (_label, yamlValue) => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-lint-bad-desc-'));
+      try {
+        fs.mkdirSync(path.join(tmp, 'packs/descprobe/scenarios/probe/1.0.0'), { recursive: true });
+        fs.writeFileSync(
+          path.join(tmp, 'packs/descprobe/pack.yaml'),
+          'apiVersion: scenarios.macp.dev/v1\nkind: ScenarioPack\nmetadata: { slug: descprobe, name: Desc Probe }\n'
+        );
+        fs.writeFileSync(
+          path.join(tmp, 'packs/descprobe/scenarios/probe/1.0.0/scenario.yaml'),
+          `apiVersion: scenarios.macp.dev/v1
+kind: ScenarioVersion
+metadata: { pack: descprobe, scenario: probe, version: 1.0.0, name: Probe }
+spec:
+  inputs: { schema: { type: object } }
+  launch:
+    modeName: macp.mode.decision.v1
+    modeVersion: '1'
+    configurationVersion: c
+    ttlMs: 1000
+    commitments:
+      - id: probe-commitment
+        description: ${yamlValue}
+`
+        );
+
+        // The assertion that matters is that this RESOLVES at all. Before the fix it rejected
+        // with `TypeError: c.description?.trim is not a function`.
+        const code = await runLint({
+          target: path.join(tmp, 'packs'),
+          packsRoot: path.join(tmp, 'packs')
+        });
+
+        expect(code).toBe(1);
+        const errorLines = errSpy.mock.calls.map((call) => String(call[0]));
+        expect(errorLines.some((line) => line.includes('FAIL') && line.includes('commitment "probe-commitment"'))).toBe(
+          true
+        );
+        // And specifically NOT the crash-shaped "failed to load" finding.
+        expect(errorLines.some((line) => line.includes('is not a function'))).toBe(false);
       } finally {
         logSpy.mockRestore();
         errSpy.mockRestore();

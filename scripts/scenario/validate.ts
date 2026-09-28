@@ -192,10 +192,12 @@ export async function runValidate(opts: ValidateOptions): Promise<number> {
     }
   }
 
-  // Commitment description warning
+  // Commitment description warning. `typeof`-guarded, not truthiness-guarded — see the matching
+  // comment in scripts/scenario/lint.ts: `scenario` is an unvalidated cast over arbitrary YAML, so
+  // a non-string `description` must produce a report entry, never a TypeError that kills the run.
   const commitments = scenario?.spec?.launch?.commitments ?? [];
   for (const c of commitments) {
-    if (!c.description?.trim()) {
+    if (typeof c.description !== 'string' || !c.description.trim()) {
       report.warnings.push(`commitment ${c.id} has no description`);
     }
   }

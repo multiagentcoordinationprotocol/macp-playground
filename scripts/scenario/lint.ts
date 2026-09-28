@@ -137,9 +137,13 @@ function lintPack(
       findings.push({ level: 'error', file: scenarioYaml, message: `scenario slug must be kebab-case: "${slug}"` });
     }
 
-    // Commitment description rule
+    // Commitment description rule. `typeof`-guarded rather than truthiness-guarded: `scenario` is
+    // an unvalidated `as` cast over arbitrary YAML, so `description` can be any type a pack author
+    // typed. `!c.description || !c.description.trim()` throws on a truthy non-string (`42`), and
+    // `!c.description?.trim()` throws on any non-string at all (`0`, `false`) — either way one
+    // malformed pack aborts the whole lint run instead of reporting a finding. This reports.
     for (const c of scenario?.spec?.launch?.commitments ?? []) {
-      if (!c.description?.trim()) {
+      if (typeof c.description !== 'string' || !c.description.trim()) {
         findings.push({ level: 'error', file: scenarioYaml, message: `commitment "${c.id}" missing description` });
       }
     }

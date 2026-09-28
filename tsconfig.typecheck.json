@@ -11,8 +11,12 @@
     // compile at all.
     "rootDir": ".",
     "noEmit": true,
-    // Both are required. tsconfig.json sets "declaration": true, and declaration emit is part of
-    // what makes rootDir load-bearing, so noEmit alone is not enough.
+    // Belt-and-braces only — NOT load-bearing, and deliberately kept anyway. Measured on
+    // TypeScript 5.9.3, all four combinations: "rootDir": "." alone -> exit 0; "declaration": false
+    // alone -> exit 2 with 19 x TS6059; neither -> the same 19 x TS6059; both -> exit 0. So rootDir
+    // is the whole fix and this option changes nothing while noEmit is true. It stays as a guard on
+    // the invariant that this config is a gate and must never emit: if noEmit were ever dropped,
+    // the inherited "declaration": true would start writing .d.ts files for test/ and scripts/.
     "declaration": false,
     // tsconfig.json declares only ["node"]; test/**/*.ts needs jest's globals.
     "types": ["node", "jest"],

@@ -5,7 +5,12 @@
     // "rootDir": "./src" is inherited, and this program deliberately reaches outside src/.
     // ESLint never emits, so nothing here depends on the output layout — this keeps the two
     // wide-coverage configs consistent rather than leaving one of them latently wrong.
-    "rootDir": "."
+    "rootDir": ".",
+    // Without jest's globals, every `expect`/`it`/`describe` in test/**/*.ts resolves to `any`,
+    // and a typed rule cannot see through `any` — so an un-awaited `expect(...).resolves.toBe(x)`
+    // is silently MISSED by no-floating-promises, which is one of the two rules this whole
+    // widening exists to enforce. Measured: it errors with these types, passes without them.
+    "types": ["node", "jest"]
   },
   "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"],
   "exclude": ["node_modules", "dist"]
