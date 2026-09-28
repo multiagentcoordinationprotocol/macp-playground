@@ -1,0 +1,856 @@
+{
+  "packs/claims/pack.yaml": {
+    "apiVersion": "scenarios.macp.dev/v1",
+    "kind": "ScenarioPack",
+    "metadata": {
+      "slug": "claims",
+      "name": "Claims",
+      "description": "Insurance claims review and adjudication demos",
+      "tags": [
+        "claims",
+        "insurance",
+        "review",
+        "demo"
+      ]
+    }
+  },
+  "packs/claims/scenarios/auto-claim-review/1.0.0/scenario.yaml": {
+    "apiVersion": "scenarios.macp.dev/v1",
+    "kind": "ScenarioVersion",
+    "metadata": {
+      "pack": "claims",
+      "scenario": "auto-claim-review",
+      "version": "1.0.0",
+      "name": "Auto Claim Review",
+      "summary": "Claims validation, fraud investigation, compliance review, and customer advocacy agents collaborate on an auto insurance claim.",
+      "tags": [
+        "claims",
+        "insurance",
+        "fraud",
+        "compliance",
+        "demo",
+        "mixed-framework"
+      ]
+    },
+    "spec": {
+      "runtime": {
+        "kind": "rust",
+        "version": "v1"
+      },
+      "inputs": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "claimId": {
+              "type": "string",
+              "default": "CLM-3001"
+            },
+            "claimAmount": {
+              "type": "number",
+              "default": 8500,
+              "minimum": 100
+            },
+            "policyAge": {
+              "type": "integer",
+              "default": 24,
+              "minimum": 0,
+              "description": "Age of the policy in months (e.g. 24 = two years)."
+            },
+            "priorClaims": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 0
+            },
+            "isHighValuePolicy": {
+              "type": "boolean",
+              "default": false
+            },
+            "incidentSeverity": {
+              "type": "string",
+              "default": "moderate",
+              "enum": [
+                "minor",
+                "moderate",
+                "severe",
+                "total_loss"
+              ]
+            }
+          },
+          "required": [
+            "claimAmount",
+            "policyAge",
+            "priorClaims",
+            "isHighValuePolicy",
+            "incidentSeverity"
+          ]
+        }
+      },
+      "launch": {
+        "modeName": "macp.mode.decision.v1",
+        "modeVersion": "1.0.0",
+        "configurationVersion": "config.default",
+        "policyVersion": "policy.claims.majority",
+        "policyHints": {
+          "type": "majority",
+          "description": "Simple majority vote with 2-voter quorum for claims review",
+          "threshold": 0.5,
+          "vetoEnabled": false,
+          "vetoThreshold": 1,
+          "minimumConfidence": 0,
+          "designatedRoles": []
+        },
+        "ttlMs": 300000,
+        "initiatorParticipantId": "risk-agent",
+        "participants": [
+          {
+            "id": "fraud-agent",
+            "role": "claims-validator",
+            "agentRef": "fraud-agent"
+          },
+          {
+            "id": "growth-agent",
+            "role": "customer-advocate",
+            "agentRef": "growth-agent"
+          },
+          {
+            "id": "compliance-agent",
+            "role": "compliance-reviewer",
+            "agentRef": "compliance-agent"
+          },
+          {
+            "id": "risk-agent",
+            "role": "risk",
+            "agentRef": "risk-agent"
+          }
+        ],
+        "commitments": [
+          {
+            "id": "claim-validated",
+            "title": "Claim validated",
+            "description": "Claims validator has confirmed documentation and policy coverage for the incident.",
+            "requiredRoles": [
+              "claims-validator"
+            ],
+            "policyRef": "policy.claims.majority"
+          },
+          {
+            "id": "compliance-reviewed",
+            "title": "Compliance review complete",
+            "description": "Compliance reviewer has confirmed the claim meets regulatory handling requirements.",
+            "requiredRoles": [
+              "compliance-reviewer"
+            ],
+            "policyRef": "policy.claims.majority"
+          },
+          {
+            "id": "claim-decision",
+            "title": "Claim decision finalized",
+            "description": "Risk coordinator has reconciled inputs and issued an approve / investigate / deny decision.",
+            "requiredRoles": [
+              "risk"
+            ],
+            "policyRef": "policy.claims.majority"
+          }
+        ],
+        "contextTemplate": {
+          "claimId": "{{ inputs.claimId }}",
+          "claimAmount": "{{ inputs.claimAmount }}",
+          "policyAge": "{{ inputs.policyAge }}",
+          "priorClaims": "{{ inputs.priorClaims }}",
+          "isHighValuePolicy": "{{ inputs.isHighValuePolicy }}",
+          "incidentSeverity": "{{ inputs.incidentSeverity }}"
+        },
+        "metadataTemplate": {
+          "demoType": "claims-review",
+          "decisionOwner": "risk-agent",
+          "specialists": [
+            "fraud-agent",
+            "growth-agent",
+            "compliance-agent"
+          ],
+          "intent": "review auto insurance claim with multi-framework agents"
+        },
+        "kickoffTemplate": [
+          {
+            "from": "risk-agent",
+            "to": [
+              "fraud-agent",
+              "growth-agent",
+              "compliance-agent"
+            ],
+            "kind": "proposal",
+            "messageType": "Proposal",
+            "payloadEnvelope": {
+              "encoding": "proto",
+              "proto": {
+                "typeName": "macp.modes.decision.v1.ProposalPayload",
+                "value": {
+                  "proposal_id": "{{ inputs.claimId }}-review",
+                  "option": "evaluate_claim",
+                  "rationale": "Decide whether to approve, investigate further, or deny the claim."
+                }
+              }
+            }
+          }
+        ]
+      },
+      "execution": {
+        "tags": [
+          "demo",
+          "claims",
+          "mixed-framework",
+          "examples"
+        ],
+        "requester": {
+          "actorId": "macp-playground",
+          "actorType": "service"
+        }
+      },
+      "outputs": {
+        "expectedDecisionKinds": [
+          "approve",
+          "investigate",
+          "deny"
+        ],
+        "expectedSignals": [
+          "suspicious_pattern",
+          "prior_claims_history",
+          "high_value_policy",
+          "severity_assessment"
+        ]
+      }
+    }
+  },
+  "packs/claims/scenarios/auto-claim-review/1.0.0/templates/default.yaml": {
+    "apiVersion": "scenarios.macp.dev/v1",
+    "kind": "ScenarioTemplate",
+    "metadata": {
+      "scenarioVersion": "claims/auto-claim-review@1.0.0",
+      "slug": "default",
+      "name": "Default"
+    },
+    "spec": {
+      "defaults": {
+        "claimAmount": 8500,
+        "policyAge": 24,
+        "priorClaims": 1,
+        "isHighValuePolicy": false,
+        "incidentSeverity": "moderate"
+      }
+    }
+  },
+  "packs/fraud/pack.yaml": {
+    "apiVersion": "scenarios.macp.dev/v1",
+    "kind": "ScenarioPack",
+    "metadata": {
+      "slug": "fraud",
+      "name": "Fraud",
+      "description": "Fraud and risk decisioning demos",
+      "tags": [
+        "fraud",
+        "risk",
+        "growth",
+        "demo"
+      ]
+    }
+  },
+  "packs/fraud/scenarios/high-value-new-device/1.0.0/scenario.yaml": {
+    "apiVersion": "scenarios.macp.dev/v1",
+    "kind": "ScenarioVersion",
+    "metadata": {
+      "pack": "fraud",
+      "scenario": "high-value-new-device",
+      "version": "1.0.0",
+      "name": "High Value Purchase From New Device",
+      "summary": "Fraud, Growth, Compliance, and Risk agents discuss a transaction and produce a decision.",
+      "tags": [
+        "fraud",
+        "growth",
+        "compliance",
+        "risk",
+        "demo"
+      ]
+    },
+    "spec": {
+      "runtime": {
+        "kind": "rust",
+        "version": "v1"
+      },
+      "inputs": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "customerId": {
+              "type": "string",
+              "default": "CUST-1001"
+            },
+            "transactionAmount": {
+              "type": "number",
+              "default": 2400,
+              "minimum": 1
+            },
+            "deviceTrustScore": {
+              "type": "number",
+              "default": 0.18,
+              "minimum": 0,
+              "maximum": 1
+            },
+            "accountAgeDays": {
+              "type": "integer",
+              "default": 14,
+              "minimum": 0
+            },
+            "isVipCustomer": {
+              "type": "boolean",
+              "default": true
+            },
+            "priorChargebacks": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 0
+            }
+          },
+          "required": [
+            "transactionAmount",
+            "deviceTrustScore",
+            "accountAgeDays",
+            "isVipCustomer",
+            "priorChargebacks"
+          ]
+        }
+      },
+      "launch": {
+        "modeName": "macp.mode.decision.v1",
+        "modeVersion": "1.0.0",
+        "configurationVersion": "config.default",
+        "policyVersion": "policy.default",
+        "policyHints": {
+          "type": "none",
+          "description": "Default policy — no additional governance constraints",
+          "vetoThreshold": 1,
+          "minimumConfidence": 0,
+          "designatedRoles": []
+        },
+        "ttlMs": 300000,
+        "initiatorParticipantId": "risk-agent",
+        "participants": [
+          {
+            "id": "fraud-agent",
+            "role": "fraud",
+            "agentRef": "fraud-agent"
+          },
+          {
+            "id": "growth-agent",
+            "role": "growth",
+            "agentRef": "growth-agent"
+          },
+          {
+            "id": "compliance-agent",
+            "role": "compliance",
+            "agentRef": "compliance-agent"
+          },
+          {
+            "id": "risk-agent",
+            "role": "risk",
+            "agentRef": "risk-agent"
+          }
+        ],
+        "commitments": [
+          {
+            "id": "fraud-risk-assessed",
+            "title": "Fraud risk assessed",
+            "description": "Fraud specialist has evaluated transaction signals and recorded a risk verdict.",
+            "requiredRoles": [
+              "fraud"
+            ],
+            "policyRef": "policy.default"
+          },
+          {
+            "id": "compliance-reviewed",
+            "title": "Compliance review complete",
+            "description": "Compliance reviewer has cleared the transaction against regulatory constraints.",
+            "requiredRoles": [
+              "compliance"
+            ],
+            "policyRef": "policy.default"
+          },
+          {
+            "id": "decision-finalized",
+            "title": "Decision finalized",
+            "description": "Risk coordinator has reconciled specialist inputs and committed a final decision.",
+            "requiredRoles": [
+              "risk"
+            ],
+            "policyRef": "policy.default"
+          }
+        ],
+        "contextTemplate": {
+          "customerId": "{{ inputs.customerId }}",
+          "transactionAmount": "{{ inputs.transactionAmount }}",
+          "deviceTrustScore": "{{ inputs.deviceTrustScore }}",
+          "accountAgeDays": "{{ inputs.accountAgeDays }}",
+          "isVipCustomer": "{{ inputs.isVipCustomer }}",
+          "priorChargebacks": "{{ inputs.priorChargebacks }}"
+        },
+        "metadataTemplate": {
+          "demoType": "fraud-decision",
+          "decisionOwner": "risk-agent",
+          "specialists": [
+            "fraud-agent",
+            "growth-agent",
+            "compliance-agent"
+          ],
+          "intent": "evaluate high value transaction from a new device"
+        },
+        "kickoffTemplate": [
+          {
+            "from": "risk-agent",
+            "to": [
+              "fraud-agent",
+              "growth-agent",
+              "compliance-agent"
+            ],
+            "kind": "proposal",
+            "messageType": "Proposal",
+            "payloadEnvelope": {
+              "encoding": "proto",
+              "proto": {
+                "typeName": "macp.modes.decision.v1.ProposalPayload",
+                "value": {
+                  "proposal_id": "{{ inputs.customerId }}-initial-review",
+                  "option": "evaluate_transaction",
+                  "rationale": "Decide whether to approve, step_up, or decline the transaction."
+                }
+              }
+            }
+          }
+        ]
+      },
+      "execution": {
+        "tags": [
+          "demo",
+          "fraud",
+          "examples"
+        ],
+        "requester": {
+          "actorId": "macp-playground",
+          "actorType": "service"
+        }
+      },
+      "outputs": {
+        "expectedDecisionKinds": [
+          "approve",
+          "step_up",
+          "decline"
+        ],
+        "expectedSignals": [
+          "suspicious_device",
+          "chargeback_history",
+          "vip_customer",
+          "low_device_trust"
+        ]
+      }
+    }
+  },
+  "packs/fraud/scenarios/high-value-new-device/1.0.0/templates/default.yaml": {
+    "apiVersion": "scenarios.macp.dev/v1",
+    "kind": "ScenarioTemplate",
+    "metadata": {
+      "scenarioVersion": "fraud/high-value-new-device@1.0.0",
+      "slug": "default",
+      "name": "Default"
+    },
+    "spec": {
+      "defaults": {
+        "transactionAmount": 2400,
+        "deviceTrustScore": 0.18,
+        "accountAgeDays": 14,
+        "isVipCustomer": true,
+        "priorChargebacks": 1
+      }
+    }
+  },
+  "packs/fraud/scenarios/high-value-new-device/1.0.0/templates/majority-veto.yaml": {
+    "apiVersion": "scenarios.macp.dev/v1",
+    "kind": "ScenarioTemplate",
+    "metadata": {
+      "scenarioVersion": "fraud/high-value-new-device@1.0.0",
+      "slug": "majority-veto",
+      "name": "Majority Vote with Veto"
+    },
+    "spec": {
+      "defaults": {
+        "transactionAmount": 2400,
+        "deviceTrustScore": 0.18,
+        "accountAgeDays": 14,
+        "isVipCustomer": true,
+        "priorChargebacks": 1
+      },
+      "overrides": {
+        "launch": {
+          "policyVersion": "policy.fraud.majority-veto",
+          "policyHints": {
+            "type": "majority",
+            "description": "Simple majority vote with blocking-objection veto and 2-voter quorum",
+            "threshold": 0.5,
+            "vetoEnabled": true,
+            "vetoThreshold": 1,
+            "minimumConfidence": 0,
+            "designatedRoles": []
+          }
+        }
+      }
+    }
+  },
+  "packs/fraud/scenarios/high-value-new-device/1.0.0/templates/strict-risk.yaml": {
+    "apiVersion": "scenarios.macp.dev/v1",
+    "kind": "ScenarioTemplate",
+    "metadata": {
+      "scenarioVersion": "fraud/high-value-new-device@1.0.0",
+      "slug": "strict-risk",
+      "name": "Strict Risk"
+    },
+    "spec": {
+      "defaults": {
+        "transactionAmount": 2400,
+        "deviceTrustScore": 0.08,
+        "accountAgeDays": 7,
+        "isVipCustomer": true,
+        "priorChargebacks": 2
+      },
+      "overrides": {
+        "launch": {
+          "ttlMs": 180000,
+          "metadataTemplate": {
+            "demoType": "fraud-decision",
+            "decisionOwner": "risk-agent",
+            "posture": "strict-risk"
+          }
+        }
+      }
+    }
+  },
+  "packs/fraud/scenarios/high-value-new-device/1.0.0/templates/suspend-demo.yaml": {
+    "apiVersion": "scenarios.macp.dev/v1",
+    "kind": "ScenarioTemplate",
+    "metadata": {
+      "scenarioVersion": "fraud/high-value-new-device@1.0.0",
+      "slug": "suspend-demo",
+      "name": "Suspend/Resume with Bound Cap"
+    },
+    "spec": {
+      "defaults": {
+        "customerId": "CUST-SUSPEND-2001",
+        "transactionAmount": 2400,
+        "deviceTrustScore": 0.18,
+        "accountAgeDays": 14,
+        "isVipCustomer": true,
+        "priorChargebacks": 1
+      },
+      "overrides": {
+        "launch": {
+          "maxSuspendMs": 15000,
+          "policyVersion": "policy.fraud.majority-veto",
+          "policyHints": {
+            "type": "majority",
+            "description": "Simple majority vote with blocking-objection veto and 2-voter quorum",
+            "threshold": 0.5,
+            "vetoEnabled": true,
+            "vetoThreshold": 1,
+            "minimumConfidence": 0,
+            "designatedRoles": []
+          }
+        }
+      }
+    }
+  },
+  "packs/fraud/scenarios/high-value-new-device/1.0.0/templates/unanimous.yaml": {
+    "apiVersion": "scenarios.macp.dev/v1",
+    "kind": "ScenarioTemplate",
+    "metadata": {
+      "scenarioVersion": "fraud/high-value-new-device@1.0.0",
+      "slug": "unanimous",
+      "name": "Unanimous Approval"
+    },
+    "spec": {
+      "defaults": {
+        "transactionAmount": 12500,
+        "deviceTrustScore": 0.08,
+        "accountAgeDays": 3,
+        "isVipCustomer": false,
+        "priorChargebacks": 2
+      },
+      "overrides": {
+        "launch": {
+          "policyVersion": "policy.fraud.unanimous",
+          "policyHints": {
+            "type": "unanimous",
+            "description": "All participants must vote approve — high-risk transaction requires unanimous agreement",
+            "threshold": 1,
+            "vetoEnabled": true,
+            "vetoThreshold": 1,
+            "minimumConfidence": 0.7,
+            "designatedRoles": []
+          }
+        }
+      }
+    }
+  },
+  "packs/lending/pack.yaml": {
+    "apiVersion": "scenarios.macp.dev/v1",
+    "kind": "ScenarioPack",
+    "metadata": {
+      "slug": "lending",
+      "name": "Lending",
+      "description": "Loan underwriting and credit decisioning demos",
+      "tags": [
+        "lending",
+        "credit",
+        "underwriting",
+        "demo"
+      ]
+    }
+  },
+  "packs/lending/scenarios/loan-underwriting/1.0.0/scenario.yaml": {
+    "apiVersion": "scenarios.macp.dev/v1",
+    "kind": "ScenarioVersion",
+    "metadata": {
+      "pack": "lending",
+      "scenario": "loan-underwriting",
+      "version": "1.0.0",
+      "name": "Loan Underwriting Review",
+      "summary": "Credit, fraud, compliance, and risk agents collaborate on a loan application decision.",
+      "tags": [
+        "lending",
+        "credit",
+        "fraud",
+        "compliance",
+        "risk",
+        "demo",
+        "mixed-framework"
+      ]
+    },
+    "spec": {
+      "runtime": {
+        "kind": "rust",
+        "version": "v1"
+      },
+      "inputs": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "applicantId": {
+              "type": "string",
+              "default": "APP-2001"
+            },
+            "loanAmount": {
+              "type": "number",
+              "default": 25000,
+              "minimum": 1000
+            },
+            "creditScore": {
+              "type": "integer",
+              "default": 680,
+              "minimum": 300,
+              "maximum": 850
+            },
+            "debtToIncomeRatio": {
+              "type": "number",
+              "default": 0.35,
+              "minimum": 0,
+              "maximum": 1
+            },
+            "employmentYears": {
+              "type": "integer",
+              "default": 3,
+              "minimum": 0
+            },
+            "isExistingCustomer": {
+              "type": "boolean",
+              "default": true
+            },
+            "priorDefaults": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            }
+          },
+          "required": [
+            "loanAmount",
+            "creditScore",
+            "debtToIncomeRatio",
+            "employmentYears",
+            "isExistingCustomer",
+            "priorDefaults"
+          ]
+        }
+      },
+      "launch": {
+        "modeName": "macp.mode.decision.v1",
+        "modeVersion": "1.0.0",
+        "configurationVersion": "config.default",
+        "policyVersion": "policy.lending.conservative",
+        "policyHints": {
+          "type": "supermajority",
+          "description": "Conservative lending policy — supermajority vote with mandatory evaluations and veto blocking",
+          "threshold": 0.67,
+          "vetoEnabled": true,
+          "vetoThreshold": 1,
+          "minimumConfidence": 0.6,
+          "designatedRoles": [
+            "risk",
+            "compliance"
+          ]
+        },
+        "ttlMs": 300000,
+        "initiatorParticipantId": "risk-agent",
+        "participants": [
+          {
+            "id": "fraud-agent",
+            "role": "fraud",
+            "agentRef": "fraud-agent"
+          },
+          {
+            "id": "growth-agent",
+            "role": "credit-analyst",
+            "agentRef": "growth-agent"
+          },
+          {
+            "id": "compliance-agent",
+            "role": "compliance",
+            "agentRef": "compliance-agent"
+          },
+          {
+            "id": "risk-agent",
+            "role": "risk",
+            "agentRef": "risk-agent"
+          }
+        ],
+        "commitments": [
+          {
+            "id": "credit-evaluated",
+            "title": "Credit evaluation complete",
+            "description": "Credit analyst has reviewed applicant score, DTI, and tenure.",
+            "requiredRoles": [
+              "credit-analyst"
+            ],
+            "policyRef": "policy.lending.conservative"
+          },
+          {
+            "id": "fraud-screened",
+            "title": "Fraud screening complete",
+            "description": "Fraud specialist has screened the application for identity and application-fraud signals.",
+            "requiredRoles": [
+              "fraud"
+            ],
+            "policyRef": "policy.lending.conservative"
+          },
+          {
+            "id": "compliance-reviewed",
+            "title": "Compliance review complete",
+            "description": "Compliance reviewer has confirmed fair-lending and KYC requirements are satisfied.",
+            "requiredRoles": [
+              "compliance"
+            ],
+            "policyRef": "policy.lending.conservative"
+          },
+          {
+            "id": "underwriting-decision",
+            "title": "Underwriting decision finalized",
+            "description": "Risk coordinator has reconciled specialist inputs and issued an underwriting decision.",
+            "requiredRoles": [
+              "risk"
+            ],
+            "policyRef": "policy.lending.conservative"
+          }
+        ],
+        "contextTemplate": {
+          "applicantId": "{{ inputs.applicantId }}",
+          "loanAmount": "{{ inputs.loanAmount }}",
+          "creditScore": "{{ inputs.creditScore }}",
+          "debtToIncomeRatio": "{{ inputs.debtToIncomeRatio }}",
+          "employmentYears": "{{ inputs.employmentYears }}",
+          "isExistingCustomer": "{{ inputs.isExistingCustomer }}",
+          "priorDefaults": "{{ inputs.priorDefaults }}"
+        },
+        "metadataTemplate": {
+          "demoType": "loan-underwriting",
+          "decisionOwner": "risk-agent",
+          "specialists": [
+            "fraud-agent",
+            "growth-agent",
+            "compliance-agent"
+          ],
+          "intent": "evaluate loan application with multi-framework agents"
+        },
+        "kickoffTemplate": [
+          {
+            "from": "risk-agent",
+            "to": [
+              "fraud-agent",
+              "growth-agent",
+              "compliance-agent"
+            ],
+            "kind": "proposal",
+            "messageType": "Proposal",
+            "payloadEnvelope": {
+              "encoding": "proto",
+              "proto": {
+                "typeName": "macp.modes.decision.v1.ProposalPayload",
+                "value": {
+                  "proposal_id": "{{ inputs.applicantId }}-loan-review",
+                  "option": "evaluate_loan_application",
+                  "rationale": "Decide whether to approve, conditionally approve, or decline the loan."
+                }
+              }
+            }
+          }
+        ]
+      },
+      "execution": {
+        "tags": [
+          "demo",
+          "lending",
+          "mixed-framework",
+          "examples"
+        ],
+        "requester": {
+          "actorId": "macp-playground",
+          "actorType": "service"
+        }
+      },
+      "outputs": {
+        "expectedDecisionKinds": [
+          "approve",
+          "conditional_approve",
+          "decline"
+        ],
+        "expectedSignals": [
+          "low_credit_score",
+          "high_dti_ratio",
+          "prior_defaults",
+          "existing_customer"
+        ]
+      }
+    }
+  },
+  "packs/lending/scenarios/loan-underwriting/1.0.0/templates/default.yaml": {
+    "apiVersion": "scenarios.macp.dev/v1",
+    "kind": "ScenarioTemplate",
+    "metadata": {
+      "scenarioVersion": "lending/loan-underwriting@1.0.0",
+      "slug": "default",
+      "name": "Default"
+    },
+    "spec": {
+      "defaults": {
+        "loanAmount": 25000,
+        "creditScore": 680,
+        "debtToIncomeRatio": 0.35,
+        "employmentYears": 3,
+        "isExistingCustomer": true,
+        "priorDefaults": 0
+      }
+    }
+  }
+}
