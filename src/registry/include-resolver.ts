@@ -131,9 +131,14 @@ function buildSchema(filePath: string, packsRoot: string, visited: Set<string>):
  *
  * That difference decides only *how* a consumer fails, and each consumer's failure mode is its own
  * to choose — so each one guards the document's shape explicitly instead of relying on a falsy
- * value to do it. `lintPack` (`scripts/scenario/lint.ts`) and `loadPackFile` /`loadScenarioFile`
- * (`file-registry.loader.ts`) both do; `discoverTemplates` optional-chains, which is equivalent.
- * Do not add a fourth consumer that dereferences a parsed document unguarded.
+ * value to do it. Every current consumer does, by one of the two means: `loadPackFile` /
+ * `loadScenarioFile` (`file-registry.loader.ts`) and `lintPack` (`scripts/scenario/lint.ts`) guard
+ * the shape explicitly, while `discoverTemplates` (`file-registry.loader.ts:249`) and the remaining
+ * sites in `scripts/scenario/lint.ts` (`:103`, `:148`, `:223`) and `scripts/scenario/validate.ts`
+ * (`:73`, `:137`) optional-chain throughout, which is equivalent.
+ * Do not add a consumer that dereferences a parsed document unguarded. Deliberately not counting
+ * them here: an earlier version of this comment said "three consumers ... do not add a fourth",
+ * and by the time anyone read it there were seven — the count rots, the instruction does not.
  *
  * An earlier version of this file tried instead to normalise marker-only input to `null` with a
  * line-scanning helper, and that helper:
