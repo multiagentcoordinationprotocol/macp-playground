@@ -97,6 +97,14 @@ jobs:
           python-version: '3.13'
           cache: pip
           cache-dependency-path: agents/requirements-dev.txt
+      # First step on purpose. `agents/requirements.txt` is otherwise resolved nowhere but
+      # `Dockerfile:23`, in the `docker` job, which `needs: [lint, build, test, python]` — so a
+      # pin conflict used to surface only after four jobs had already passed. `--dry-run`
+      # resolves without installing, which is all that is needed: resolution is exactly what
+      # fails. `--ignore-installed` stops an already-present package from short-circuiting the
+      # resolver and hiding a conflict.
+      - name: Resolve agent framework pins (gate — a conflict here used to surface only in `docker`)
+        run: pip install --dry-run --ignore-installed -r agents/requirements.txt
       - run: pip install -r agents/requirements-dev.txt
       - name: Lint Python workers
         run: ruff check agents/
@@ -135,6 +143,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build (and push on non-PR events)
+        id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
@@ -147,11 +156,178 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # The four steps below are the first gates anywhere that RUN the image. Until now this
+      # job only built it, so `Dockerfile`'s HEALTHCHECK never executed in CI and nothing ever
+      # booted the emitted CommonJS in `dist/` — the e2e tier uses `Test.createTestingModule`
+      # against ts-jest-transpiled TypeScript, never `node dist/main.js`.
+      #
+      # They deliberately run on EVERY event, not just pull requests. `load:` above is true only
+      # on PRs, so on `main` the image exists solely in the registry — hence the pull below. The
+      # alternative (`if: github.event_name == 'pull_request'`) would make these gates silently
+      # no-op on exactly the branch that publishes `:latest`, which is worse than not having
+      # them. The resolved reference is reused by the Trivy step below, so the scan and the gates
+      # are guaranteed to be looking at the same image.
+      - name: Resolve the built image reference
+        id: image
+        run: |
+          set -euo pipefail
+          ref='ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.version }}'
+          if [ '${{ github.event_name }}' != 'pull_request' ]; then
+            # Prefer the digest the push just produced. On `main` the primary tag is the mutable
+            # `latest`, which a concurrent push could overwrite between our push and our pull —
+            # the gates would then run against someone else's image. A digest cannot be moved.
+            digest='${{ steps.build.outputs.digest }}'
+            if [ -n "$digest" ]; then
+              ref='ghcr.io/${{ github.repository }}@'"$digest"
+              echo "not a pull request — pinning to the immutable digest just pushed: $ref"
+            else
+              echo "not a pull request — no digest output; falling back to the mutable tag $ref"
+            fi
+            docker pull "$ref"
+          else
+            echo "pull request — the image was loaded into the local daemon as $ref"
+          fi
+          # Itself a gate: `docker image inspect` on a reference that does not exist exits 1.
+          docker image inspect "$ref" --format 'resolved {{.Id}} ({{.Os}}/{{.Architecture}})'
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      # Each of the three Python workers wraps its framework imports in `try/except ImportError`
+      # and falls back to a deterministic scorer, so a moved or renamed 1.x symbol degrades
+      # SILENTLY into a plausible wrong answer instead of crashing. Asserting the `HAS_*` flags
+      # is what turns that into a build failure. `OPENAI_API_KEY=` is present-but-EMPTY on
+      # purpose: crewai auto-loads `.env` via python-dotenv, so merely leaving the variable
+      # unset would let a real key through and bill a live call. `CREWAI_TRACING_ENABLED=false`
+      # suppresses a 20s interactive stdin prompt.
+      - name: Framework import smoke (gate — the three frameworks must genuinely load)
+        run: |
+          docker run --rm -i \
+            -e OPENAI_API_KEY= \
+            -e CREWAI_TRACING_ENABLED=false \
+            -w /app/agents '${{ steps.image.outputs.ref }}' python3 - <<'PY'
+          from langchain_worker.chain import build_agent, HAS_LANGCHAIN
+          from langgraph_worker.graph import build_graph, HAS_LANGGRAPH
+          from crewai_worker.crew import build_crew, HAS_CREWAI
+
+          assert HAS_LANGCHAIN and HAS_LANGGRAPH and HAS_CREWAI, (HAS_LANGCHAIN, HAS_LANGGRAPH, HAS_CREWAI)
+
+          from langchain_worker.mappers import map_kickoff_to_inputs
+          from langgraph_worker.mappers import map_kickoff_to_state
+          from crewai_worker.mappers import map_kickoff_to_crew_inputs
+
+          k = {'deviceTrustScore': 0.05, 'priorChargebacks': 2}
+          print('langchain:', build_agent().invoke(map_kickoff_to_inputs(k))['recommendation'])
+          print('langgraph:', build_graph().invoke(map_kickoff_to_state(k))['recommendation'])
+          print('crewai   :', build_crew(map_kickoff_to_crew_inputs(k)).kickoff()['recommendation'])
+          print('IMPORT SMOKE OK')
+          PY
+
+      # The import smoke above proves less than it looks: an EMPTY api key routes every worker
+      # into its no-key branch, so the framework-object construction never executes. This second
+      # smoke uses a DUMMY key to reach it. Nothing is `.invoke()`d or `.kickoff()`d, and
+      # constructing `ChatOpenAI` makes no network call, so this stays free and offline.
+      #
+      # What it covers, precisely — claim no more than this:
+      #   * `crewai.Agent`/`Task`/`Crew` exist and accept this repo's exact kwargs, and
+      #     `ChatOpenAI(model=, temperature=, api_key=)` at crew.py:68 and chain.py:40 is
+      #     reached and does not raise. A renamed symbol or changed signature goes red here.
+      #   * `HAS_LANGCHAIN_OPENAI` covers crew.py's own `langchain_openai` import, which is
+      #     otherwise swallowed and which NOTHING on the built Crew can reveal: crewai coerces
+      #     whatever `llm` it is handed into its own `crewai.llm.LLM` and validates nothing, so
+      #     `type(crew).__name__` is `Crew` even with the LLM silently dropped (measured).
+      #   * `build_agent().func` must be `invoke_with_usage`, NOT merely a `RunnableLambda` —
+      #     chain.py returns `RunnableLambda` on BOTH branches (:76 vs :83), so asserting the
+      #     type would pass with an empty key and prove nothing.
+      # What it does NOT cover, by design: `ChatPromptTemplate.from_messages`, `prompt | llm`
+      # and `response.usage_metadata` all live inside the `invoke_with_usage` closure, reachable
+      # only via `.invoke()` — i.e. only via a billable LLM call. They stay ungated.
+      - name: Framework construct smoke (gate — real framework objects, dummy key, no LLM call)
+        run: |
+          docker run --rm -i \
+            -e OPENAI_API_KEY=sk-not-a-real-key \
+            -e CREWAI_TRACING_ENABLED=false \
+            -w /app/agents '${{ steps.image.outputs.ref }}' python3 - <<'PY'
+          from crewai_worker.crew import build_crew, HAS_LANGCHAIN_OPENAI
+          from crewai_worker.mappers import map_kickoff_to_crew_inputs
+          from langchain_worker.chain import build_agent
+
+          k = {'deviceTrustScore': 0.05, 'priorChargebacks': 2}
+
+          # Construct both before asserting on either, so one run names every degraded path
+          # instead of stopping at the first.
+          crew = build_crew(map_kickoff_to_crew_inputs(k))
+          agent = build_agent()
+
+          crew_type = type(crew).__name__
+          # `RunnableLambda.func` holds the wrapped callable. Read it defensively: if a future
+          # langchain-core renames the attribute we want a named gate failure, not an
+          # opaque AttributeError.
+          wrapped = getattr(agent, 'func', None)
+          wrapped_name = getattr(wrapped, '__name__', repr(wrapped))
+
+          problems = []
+          if crew_type != 'Crew':
+              problems.append(f'crewai_worker.crew.build_crew() returned {crew_type}, expected Crew')
+          if not HAS_LANGCHAIN_OPENAI:
+              problems.append('crewai_worker.crew could not import langchain_openai.ChatOpenAI')
+          if wrapped_name != 'invoke_with_usage':
+              problems.append(f'langchain_worker.chain.build_agent() wrapped {wrapped_name}, expected invoke_with_usage')
+          assert not problems, '; '.join(problems)
+
+          print('CONSTRUCT SMOKE OK', crew_type, wrapped_name)
+          PY
+
+      # `MACP_AUTH_SERVICE_URL` is mandatory and non-obvious: `AppConfigService.onModuleInit`
+      # calls `validateAuthConfig()` unconditionally, which throws when the URL is empty — the
+      # app dies during `onModuleInit` AFTER mapping every route, so the failure looks like a
+      # hang rather than a config error. The URL is never contacted at boot, so any unreachable
+      # value works. Every test tier that boots the app overrides `AppConfigService`, which is
+      # exactly why this unconditional requirement is invisible everywhere else in CI.
+      - name: Boot the built image and probe /healthz (gate — the only run of `dist/main.js`)
+        run: |
+          set -euo pipefail
+          name=macp-playground-bootprobe
+          # A FRESH file every run, never a fixed path. `curl -sf -o FILE` leaves a pre-existing
+          # file completely untouched when the connection is refused (exit 7), so a fixed path
+          # lets a stale `{"ok":true}` from an earlier run green this gate while the container is
+          # actually dead — measured. `mktemp` makes that impossible.
+          body="$(mktemp)"
+          cleanup() {
+            echo '--- container logs ---'
+            docker logs "$name" 2>&1 || true
+            docker rm -f "$name" >/dev/null 2>&1 || true
+            rm -f "$body"
+          }
+          trap cleanup EXIT
+          docker run -d --name "$name" -p 3000:3000 \
+            -e NODE_ENV=production \
+            -e MACP_AUTH_SERVICE_URL=http://127.0.0.1:9/unused \
+            '${{ steps.image.outputs.ref }}'
+          for _ in $(seq 1 30); do
+            if curl -sf http://localhost:3000/healthz -o "$body"; then break; fi
+            sleep 1
+          done
+          if [ ! -s "$body" ]; then
+            echo "::error::container never answered GET /healthz within 30s"
+            exit 1
+          fi
+          # A process that answered once and then died is not a successful boot. Independent of
+          # the body check, and the second guard against this gate greening on a dead container.
+          running="$(docker inspect -f '{{.State.Running}}' "$name")"
+          if [ "$running" != 'true' ]; then
+            echo "::error::container answered /healthz but is no longer running"
+            exit 1
+          fi
+          echo "/healthz body: $(cat "$body")"
+          grep -q '"ok":true' "$body"
+
       - name: Scan image for vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         continue-on-error: true
         with:
-          image-ref: ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.version }}
+          # The same reference the gates above ran against. Previously this was the mutable
+          # `:${{ steps.meta.outputs.version }}` tag, which on `main` is `latest` — so a
+          # concurrent push could have had Trivy scan a different image than the one CI gated.
+          image-ref: ${{ steps.image.outputs.ref }}
           format: table
           severity: CRITICAL,HIGH
           exit-code: '1'
