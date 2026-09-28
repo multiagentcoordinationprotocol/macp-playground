@@ -164,11 +164,10 @@ spec:
       fs.cpSync(path.join(FIXTURES_PACKS, '_shared'), path.join(tmpPacks, '_shared'), { recursive: true });
       // The starter uses 4-agent-fraud and policy-hints/default that the test fixture _shared lacks.
       // Copy from production _shared so the scaffolded scenario validates.
-      fs.cpSync(
-        path.resolve(REPO_ROOT, 'packs/_shared'),
-        path.join(tmpPacks, '_shared'),
-        { recursive: true, force: true } as fs.CopySyncOptions
-      );
+      fs.cpSync(path.resolve(REPO_ROOT, 'packs/_shared'), path.join(tmpPacks, '_shared'), {
+        recursive: true,
+        force: true
+      } as fs.CopySyncOptions);
     });
 
     afterEach(() => {
@@ -338,9 +337,7 @@ spec:
         const compileResult = JSON.parse(result.stdout);
         expect(compileResult.mode).toBe('sandbox');
         expect(compileResult.runDescriptor.session.modeName).toBe('macp.mode.decision.v1');
-        expect(compileResult.sessionId).toMatch(
-          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-        );
+        expect(compileResult.sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
       } finally {
         fs.unlinkSync(tmpInputs);
       }

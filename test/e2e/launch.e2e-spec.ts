@@ -14,7 +14,9 @@ describe('Launch (e2e)', () => {
       stubAuthMinter(
         Test.createTestingModule({
           imports: [AppModule]
-        }).overrideProvider(AppConfigService).useValue(buildE2eConfig())
+        })
+          .overrideProvider(AppConfigService)
+          .useValue(buildE2eConfig())
       )
     ).compile();
 

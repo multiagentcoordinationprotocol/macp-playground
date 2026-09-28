@@ -95,7 +95,9 @@ export async function runValidate(opts: ValidateOptions): Promise<number> {
     try {
       ajv.compile(inputSchema);
     } catch (err) {
-      report.errors.push(`spec.inputs.schema is not valid JSON Schema: ${err instanceof Error ? err.message : String(err)}`);
+      report.errors.push(
+        `spec.inputs.schema is not valid JSON Schema: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
 

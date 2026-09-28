@@ -65,7 +65,7 @@ export async function runDryRun(opts: DryRunOptions): Promise<number> {
       }
     } else {
       // eslint-disable-next-line no-console
-      console.error(err instanceof Error ? err.stack ?? err.message : String(err));
+      console.error(err instanceof Error ? (err.stack ?? err.message) : String(err));
     }
     return 1;
   }

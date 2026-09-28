@@ -102,12 +102,20 @@ function lintPack(
   try {
     pack = loadYamlWithIncludes(packYaml, packsRoot) as PackFile;
   } catch (err) {
-    findings.push({ level: 'error', file: packYaml, message: `failed to load: ${err instanceof Error ? err.message : String(err)}` });
+    findings.push({
+      level: 'error',
+      file: packYaml,
+      message: `failed to load: ${err instanceof Error ? err.message : String(err)}`
+    });
     return findings;
   }
 
   if (!SLUG_RE.test(pack.metadata?.slug ?? '')) {
-    findings.push({ level: 'error', file: packYaml, message: `pack slug must be kebab-case: "${pack.metadata?.slug}"` });
+    findings.push({
+      level: 'error',
+      file: packYaml,
+      message: `pack slug must be kebab-case: "${pack.metadata?.slug}"`
+    });
   }
 
   for (const versionDir of listScenarioVersionDirs(packDir)) {
@@ -116,7 +124,11 @@ function lintPack(
     try {
       scenario = loadYamlWithIncludes(scenarioYaml, packsRoot) as ScenarioVersionFile;
     } catch (err) {
-      findings.push({ level: 'error', file: scenarioYaml, message: `failed to load: ${err instanceof Error ? err.message : String(err)}` });
+      findings.push({
+        level: 'error',
+        file: scenarioYaml,
+        message: `failed to load: ${err instanceof Error ? err.message : String(err)}`
+      });
       continue;
     }
 
@@ -135,7 +147,11 @@ function lintPack(
     // policyVersion existence
     const policyVersion = scenario?.spec?.launch?.policyVersion;
     if (policyVersion && policyVersion !== 'policy.default' && !knownPolicies.has(policyVersion)) {
-      findings.push({ level: 'warn', file: scenarioYaml, message: `policyVersion "${policyVersion}" not found in /${POLICIES_DIR_NAME}` });
+      findings.push({
+        level: 'warn',
+        file: scenarioYaml,
+        message: `policyVersion "${policyVersion}" not found in /${POLICIES_DIR_NAME}`
+      });
     }
 
     // policyVersion rules-schema conformance (#81) — runs against policy.default.json too,
@@ -162,7 +178,11 @@ function lintPack(
     // agentRef existence
     for (const p of scenario?.spec?.launch?.participants ?? []) {
       if (!knownAgentRefs.has(p.agentRef)) {
-        findings.push({ level: 'error', file: scenarioYaml, message: `participant "${p.id}" agentRef "${p.agentRef}" not in catalog` });
+        findings.push({
+          level: 'error',
+          file: scenarioYaml,
+          message: `participant "${p.id}" agentRef "${p.agentRef}" not in catalog`
+        });
       }
     }
 
@@ -175,7 +195,10 @@ function lintPack(
         try {
           const tmpl = loadYamlWithIncludes(tp, packsRoot) as ScenarioTemplateFile;
           const overrideCommit = tmpl?.spec?.overrides?.launch?.commitments;
-          if (Array.isArray(overrideCommit) && overrideCommit.length < (scenario?.spec?.launch?.commitments?.length ?? 0)) {
+          if (
+            Array.isArray(overrideCommit) &&
+            overrideCommit.length < (scenario?.spec?.launch?.commitments?.length ?? 0)
+          ) {
             findings.push({
               level: 'warn',
               file: tp,
@@ -183,7 +206,11 @@ function lintPack(
             });
           }
         } catch (err) {
-          findings.push({ level: 'error', file: tp, message: `failed to load: ${err instanceof Error ? err.message : String(err)}` });
+          findings.push({
+            level: 'error',
+            file: tp,
+            message: `failed to load: ${err instanceof Error ? err.message : String(err)}`
+          });
         }
       }
     }

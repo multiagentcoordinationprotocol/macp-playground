@@ -98,7 +98,8 @@ export async function runNew(opts: NewOptions): Promise<number> {
     // Rewrite scenario.yaml metadata block
     const scenarioYaml = path.join(versionDir, 'scenario.yaml');
     if (fs.existsSync(scenarioYaml)) {
-      const content = fs.readFileSync(scenarioYaml, 'utf-8')
+      const content = fs
+        .readFileSync(scenarioYaml, 'utf-8')
         .replace(/^(\s*pack:).*$/m, `$1 ${opts.pack}`)
         .replace(/^(\s*scenario:).*$/m, `$1 ${opts.scenario}`)
         .replace(/^(\s*version:).*$/m, `$1 ${opts.version}`);

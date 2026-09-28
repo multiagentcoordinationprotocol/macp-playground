@@ -18,9 +18,7 @@ describe('Example Run - Dry Run (integration)', () => {
 
   describe('POST /examples/run with bootstrapAgents=false', () => {
     it('compiles and returns empty hostedAgents without bootstrapping', async () => {
-      const result = (await ctx.client.runExample(
-        fraudScenarioRunRequest({ bootstrapAgents: false })
-      )) as any;
+      const result = (await ctx.client.runExample(fraudScenarioRunRequest({ bootstrapAgents: false }))) as any;
 
       expect(result.compiled).toBeDefined();
       expect(result.compiled.runDescriptor).toBeDefined();

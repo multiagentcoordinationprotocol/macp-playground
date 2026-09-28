@@ -58,11 +58,7 @@ export class IntegrationTestClient {
 
   // -- Raw --
 
-  async requestRaw(
-    method: string,
-    path: string,
-    opts?: RequestOptions
-  ): Promise<{ status: number; body: unknown }> {
+  async requestRaw(method: string, path: string, opts?: RequestOptions): Promise<{ status: number; body: unknown }> {
     const url = this.buildUrl(path, opts?.query);
     const headers: Record<string, string> = {
       'content-type': 'application/json',
