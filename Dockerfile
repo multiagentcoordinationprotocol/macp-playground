@@ -18,10 +18,19 @@ RUN apt-get update \
   && groupadd -r appgroup \
   && useradd -r -g appgroup appuser
 
-# Install Python agent framework dependencies (LangGraph, LangChain, CrewAI, macp-sdk-python)
+# Install Python agent framework dependencies (LangGraph, LangChain, CrewAI, macp-sdk-python).
+#
+# `-c agent-constraints.txt` pins the full transitive closure. requirements.txt pins only the six
+# direct dependencies, which leaves everything underneath them floating — so a bad `instructor`,
+# `litellm` or `pydantic` release could break this build with no change in the repo at all. The
+# constraints file is generated against THIS base image (Debian trixie system Python), not a clean
+# venv, because `--break-system-packages` means /usr/lib/python3/dist-packages participates in the
+# resolution; a venv-generated file would not match what installs here. Regenerate it in a
+# node:26-slim container whenever requirements.txt changes.
 COPY agents/requirements.txt /tmp/agent-requirements.txt
-RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/agent-requirements.txt \
-  && rm /tmp/agent-requirements.txt
+COPY agents/constraints.txt /tmp/agent-constraints.txt
+RUN pip3 install --no-cache-dir --break-system-packages -c /tmp/agent-constraints.txt -r /tmp/agent-requirements.txt \
+  && rm /tmp/agent-requirements.txt /tmp/agent-constraints.txt
 
 COPY package.json package-lock.json* .npmrc ./
 ARG NODE_AUTH_TOKEN
