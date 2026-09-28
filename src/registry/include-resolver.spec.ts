@@ -332,14 +332,25 @@ describe('loadYamlWithIncludes', () => {
     });
 
     it("yields '' (not null) for a marker-only file, and that is deliberately NOT normalised", () => {
-      // js-yaml 4 returned null here; v5 returns '' and does not throw. Left alone on purpose. Both
-      // are falsy and every consumer treats them the same — and at `scripts/scenario/lint.ts` the
-      // empty string is the SAFER of the two, because that code dereferences the parsed document
-      // directly: `null.metadata` throws, `''.metadata` is undefined. An earlier attempt to
-      // normalise this with a line-scanning helper regressed behaviour, returning null for input
-      // js-yaml REJECTS and so converting a reportable finding into a downstream crash. See the
-      // block comment in include-resolver.ts. Asserting the real value is what stops that being
-      // reintroduced as a "fix".
+      // js-yaml 4 returned null here; v5 returns '' and does not throw. Left alone on purpose —
+      // but NOT because '' and null are interchangeable. They are not: `''.metadata` is undefined
+      // while `null.metadata` throws, so the two give a consumer different failure modes. An
+      // earlier version of this comment claimed "every consumer treats them the same" and that
+      // `scripts/scenario/lint.ts` dereferences the parsed document directly. Both were false: the
+      // first is contradicted by `FileRegistryLoader` (where the difference was worth an entire
+      // catalog — see the block comment in file-registry.loader.ts), and the second described code
+      // that no longer exists, since `lintPack` now returns on a non-mapping document before any
+      // dereference.
+      //
+      // So the reason this is not normalised is simply that the resolver is the wrong layer to
+      // pick a consumer's failure mode. Each consumer guards the document's shape itself:
+      // `lintPack` (scripts/scenario/lint.ts), `loadPackFile`/`loadScenarioFile`
+      // (src/registry/file-registry.loader.ts), and `discoverTemplates` by optional chaining.
+      //
+      // An earlier attempt to normalise this with a line-scanning helper regressed behaviour,
+      // returning null for input js-yaml REJECTS and so converting a reportable finding into a
+      // downstream crash. Asserting the real value is what stops that being reintroduced as a
+      // "fix".
       expect(loadYamlWithIncludes(writeFile('a.yaml', '---\n'), tmpRoot)).toBe('');
       expect(loadYamlWithIncludes(writeFile('b.yaml', '--- # placeholder\n'), tmpRoot)).toBe('');
       expect(loadYamlWithIncludes(writeFile('c.yaml', '  ---\n'), tmpRoot)).toBe('');

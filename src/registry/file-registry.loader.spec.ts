@@ -280,8 +280,12 @@ spec:
       await expect(load()).rejects.toMatchObject({ errorCode: ErrorCode.INVALID_PACK_DATA });
     });
 
-    // Input js-yaml itself rejects is neither class: it is a reportable load failure, and the
-    // per-pack catch is what keeps it from taking the catalog with it.
+    // Input js-yaml itself rejects falls on the LOUD side of the split, with the malformed packs:
+    // `parseYamlFile` wraps the YAMLException in AppException(INVALID_PACK_DATA), and `loadAll`
+    // rethrows AppException, so these take the whole catalog down rather than costing one pack.
+    // That is deliberate and matches js-yaml 4 — unparseable YAML is a real error, not an unwritten
+    // file — and it is what the assertion below pins. (An earlier version of this comment claimed
+    // the per-pack catch contained these. It does not, and the assertion two lines down says so.)
     it.each([
       ['a directive with no document', '%YAML 1.2\n'],
       ['two documents in one file', '---\n---\n']

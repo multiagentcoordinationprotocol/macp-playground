@@ -255,10 +255,11 @@ found, then skips just that pack (or, for `scenario.yaml`, just that version) an
 everything else. Scaffolding a new pack therefore cannot take the catalog down.
 
 That containment is deliberate and is tested, because it is **not** how a *malformed* file behaves. A
-file that does contain a mapping but gets `apiVersion`, `kind` or `metadata.slug` wrong is a real
-error: it raises `INVALID_PACK_DATA` and fails the entire registry load, so every catalog route
-returns HTTP 500 until it is fixed. The same is true of YAML that js-yaml cannot parse at all,
-including two documents in one file (`---` twice) and a `%YAML` directive with no following `---`.
+file that does contain a mapping but gets `apiVersion` or `kind` wrong — or, for `pack.yaml` only, a
+missing `metadata.slug` — is a real error: it raises `INVALID_PACK_DATA` and fails the entire
+registry load, so every catalog route returns HTTP 500 until it is fixed. The same is true of YAML
+that js-yaml cannot parse at all, including two documents in one file (`---` twice) and a `%YAML`
+directive with no following `---`.
 
 The rule of thumb: **a file you have not written yet costs you that one pack; a file you have written
 wrongly costs you the whole catalog.** If you are scaffolding, leave the file empty or commented out

@@ -26,11 +26,18 @@ import { loadYamlWithIncludes } from './include-resolver';
  *   - claims to be a pack but is wrong        -> AppException(INVALID_PACK_DATA), which `loadAll`
  *     (apiVersion / kind / metadata.slug)        deliberately rethrows, failing the whole load
  *
- * Restoring that split is a REQUIREMENT of the js-yaml 4 -> 5 upgrade, not a new policy. Under v4
- * every document-less spelling parsed to `null`, so the unguarded `data.apiVersion` below raised a
- * TypeError — not an AppException, and therefore caught by `loadAll`'s per-pack catch. Under v5
- * `'---\n'` parses to `''` instead, and `''.apiVersion` is `undefined` rather than a throw, so it
- * reached the apiVersion check and raised INVALID_PACK_DATA, which `loadAll` rethrows.
+ * Restoring that split is mostly a REQUIREMENT of the js-yaml 4 -> 5 upgrade rather than a new
+ * policy. Under v4 the document-less spellings parsed to `null`, so the unguarded `data.apiVersion`
+ * below raised a TypeError — not an AppException, and therefore caught by `loadAll`'s per-pack
+ * catch. Under v5 `'---\n'` parses to `''` instead, and `''.apiVersion` is `undefined` rather than
+ * a throw, so it reached the apiVersion check and raised INVALID_PACK_DATA, which `loadAll`
+ * rethrows.
+ *
+ * "Mostly", with the exception named rather than glossed: an INDENTED `'  ---\n'` parsed to the
+ * string `'---'` under v4, not to `null`, and a string fails the apiVersion check — so that one
+ * spelling took the whole load down under v4 as well. For it this guard is a new and better policy,
+ * not a restoration. Seven of the eight spellings pinned in the spec are restorations; that one is
+ * an improvement.
  *
  * The consequence was that two spellings of the same placeholder differed by the entire catalog:
  * `'# TODO\n'` cost one pack, while `'---\n# TODO\n'` returned HTTP 500 INVALID_PACK_DATA from
