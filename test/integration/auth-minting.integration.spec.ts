@@ -95,7 +95,7 @@ describe('AUTH-2 JWT minting (integration)', () => {
     });
   });
 
-  describe('Full /examples/run under jwt mode', () => {
+  describe('Full /examples/run — JWT minting (the only token path)', () => {
     let ctx: IntegrationTestContext;
 
     beforeEach(async () => {
@@ -163,7 +163,7 @@ describe('AUTH-2 JWT minting (integration)', () => {
     });
   });
 
-  describe('Full /examples/run under jwt mode — auth-service down', () => {
+  describe('Full /examples/run — auth-service down', () => {
     let ctx: IntegrationTestContext;
 
     beforeEach(async () => {
