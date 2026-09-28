@@ -23,7 +23,6 @@ export async function runDryRun(opts: DryRunOptions): Promise<number> {
   const inputsPath = path.resolve(opts.inputsFile);
 
   if (!fs.existsSync(inputsPath)) {
-    // eslint-disable-next-line no-console
     console.error(`inputs file not found: ${inputsPath}`);
     return 1;
   }
@@ -32,7 +31,6 @@ export async function runDryRun(opts: DryRunOptions): Promise<number> {
   try {
     inputs = JSON.parse(fs.readFileSync(inputsPath, 'utf-8')) as Record<string, unknown>;
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.error(`inputs file is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
     return 1;
   }
@@ -52,19 +50,16 @@ export async function runDryRun(opts: DryRunOptions): Promise<number> {
       inputs,
       mode: opts.mode
     });
-    // eslint-disable-next-line no-console
+    // eslint-disable-next-line no-console -- the compiled ExecutionRequest on stdout IS this command's output contract
     console.log(JSON.stringify(result, null, 2));
     return 0;
   } catch (err) {
     if (err instanceof AppException) {
-      // eslint-disable-next-line no-console
       console.error(`${err.errorCode}: ${err.message}`);
       if (err.metadata) {
-        // eslint-disable-next-line no-console
         console.error(JSON.stringify(err.metadata, null, 2));
       }
     } else {
-      // eslint-disable-next-line no-console
       console.error(err instanceof Error ? (err.stack ?? err.message) : String(err));
     }
     return 1;

@@ -195,7 +195,7 @@ export async function runValidate(opts: ValidateOptions): Promise<number> {
   // Commitment description warning
   const commitments = scenario?.spec?.launch?.commitments ?? [];
   for (const c of commitments) {
-    if (!c.description || !c.description.trim()) {
+    if (!c.description?.trim()) {
       report.warnings.push(`commitment ${c.id} has no description`);
     }
   }
@@ -205,24 +205,22 @@ export async function runValidate(opts: ValidateOptions): Promise<number> {
 }
 
 function printReport(report: ValidateReport, scenarioPath: string): void {
-  // eslint-disable-next-line no-console
+  // eslint-disable-next-line no-console -- the validation report on stdout is this command's output
   console.log(`scenario:validate  ${scenarioPath}`);
   for (const w of report.warnings) {
-    // eslint-disable-next-line no-console
+    // eslint-disable-next-line no-console -- warnings belong on stdout with the rest of the report
     console.log(`  WARN  ${w}`);
   }
   for (const e of report.errors) {
-    // eslint-disable-next-line no-console
     console.error(`  FAIL  ${e}`);
   }
   if (report.errors.length === 0 && report.warnings.length === 0) {
-    // eslint-disable-next-line no-console
+    // eslint-disable-next-line no-console -- terminal verdict on stdout
     console.log('  OK');
   } else if (report.errors.length === 0) {
-    // eslint-disable-next-line no-console
+    // eslint-disable-next-line no-console -- terminal verdict on stdout
     console.log(`  PASS (${report.warnings.length} warning(s))`);
   } else {
-    // eslint-disable-next-line no-console
     console.error(`  FAILED (${report.errors.length} error(s), ${report.warnings.length} warning(s))`);
   }
 }

@@ -139,7 +139,7 @@ function lintPack(
 
     // Commitment description rule
     for (const c of scenario?.spec?.launch?.commitments ?? []) {
-      if (!c.description || !c.description.trim()) {
+      if (!c.description?.trim()) {
         findings.push({ level: 'error', file: scenarioYaml, message: `commitment "${c.id}" missing description` });
       }
     }
@@ -262,7 +262,6 @@ export async function runLint(opts: LintOptions): Promise<number> {
 
   const packDirs = listPackDirs(target);
   if (packDirs.length === 0) {
-    // eslint-disable-next-line no-console
     console.error(`no packs found under ${target}`);
     return 1;
   }
@@ -273,15 +272,15 @@ export async function runLint(opts: LintOptions): Promise<number> {
     const findings = lintPack(packDir, packsRoot, knownAgentRefs, knownPolicies, rulesValidator, validatedPolicyIds);
     for (const f of findings) {
       const tag = f.level === 'error' ? 'FAIL' : 'WARN';
+      // eslint-disable-next-line no-console -- routing: failures to stderr, warnings to stdout; the report IS the output
       const stream = f.level === 'error' ? console.error : console.log;
-      // eslint-disable-next-line no-console
       stream(`  ${tag}  ${path.relative(process.cwd(), f.file)}: ${f.message}`);
       if (f.level === 'error') errors++;
       else warns++;
     }
   }
 
-  // eslint-disable-next-line no-console
+  // eslint-disable-next-line no-console -- the summary line on stdout is this command's output
   console.log(`scenario:lint  ${packDirs.length} pack(s) — ${errors} error(s), ${warns} warning(s)`);
   return errors > 0 ? 1 : 0;
 }

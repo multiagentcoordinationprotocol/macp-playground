@@ -1,5 +1,12 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["src/**/*.ts"],
+  "compilerOptions": {
+    // Same override, and for the same reason, as tsconfig.typecheck.json: tsconfig.json's
+    // "rootDir": "./src" is inherited, and this program deliberately reaches outside src/.
+    // ESLint never emits, so nothing here depends on the output layout — this keeps the two
+    // wide-coverage configs consistent rather than leaving one of them latently wrong.
+    "rootDir": "."
+  },
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
