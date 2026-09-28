@@ -26,7 +26,10 @@ RUN apt-get update \
 # constraints file is generated against THIS base image (Debian trixie system Python), not a clean
 # venv, because `--break-system-packages` means /usr/lib/python3/dist-packages participates in the
 # resolution; a venv-generated file would not match what installs here. Regenerate it in a
-# node:26-slim container whenever requirements.txt changes.
+# node:26-slim container whenever requirements.txt changes — and after regenerating, re-add the
+# `packaging` pin by hand. Debian's python3-pip already provides packaging, so the generator never
+# emits it, which silently left it the one floating package in the closure (the CI gate runs
+# --ignore-installed and so resolved a different version than the image shipped).
 COPY agents/requirements.txt /tmp/agent-requirements.txt
 COPY agents/constraints.txt /tmp/agent-constraints.txt
 RUN pip3 install --no-cache-dir --break-system-packages -c /tmp/agent-constraints.txt -r /tmp/agent-requirements.txt \
