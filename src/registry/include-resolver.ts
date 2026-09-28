@@ -74,7 +74,8 @@ function loadFile(filePath: string, packsRoot: string, visited: Set<string>): un
 /**
  * Builds a one-shot schema carrying the `!include` tag, bound to the file currently being parsed.
  *
- * js-yaml 5 replaced v4's `new yaml.Type(...)` + `Schema.extend([...])` with `defineScalarTag()` +
+ * js-yaml 5 replaced v4's scalar-type constructor and its schema-extension method with
+ * `defineScalarTag()` +
  * `Schema.withTags()`. The v4 spelling does not fail silently under v5 — it is two hard `TS2339`s
  * (`Type` gone from the module, `extend` gone from `Schema`), which is why this rewrite is safe to
  * make in the same commit as the bump.
@@ -107,8 +108,35 @@ function buildSchema(filePath: string, packsRoot: string, visited: Set<string>):
   return yaml.JSON_SCHEMA.withTags(includeTag);
 }
 
+/**
+ * True when the file carries no YAML document at all — every line is blank, a comment, a document
+ * marker (`---` / `...`) or a directive (`%YAML 1.2`).
+ *
+ * This exists because js-yaml 4 and 5 disagree on document-less input in TWO different ways, and
+ * only one of them is catchable:
+ *
+ *   input                 v4 load()    v5 load()
+ *   ''  /  '   '          undefined    THROWS 'expected a document, but the input is empty'
+ *   '# comment only\n'    null         THROWS (same)
+ *   '---\n'               null         '' — does NOT throw
+ *
+ * The throwing cases are caught below. The `---`-only case is the dangerous one: nothing throws, so
+ * a file that used to read as "no content" silently starts reading as an empty STRING. Callers
+ * checking `=== null` would take the wrong branch and never know. Normalising here, before parsing,
+ * covers all three uniformly and restores v4's contract.
+ *
+ * Deliberately conservative: it requires EVERY line to be content-free, so a `---` followed by real
+ * YAML, a literal block whose body happens to look like comments, or a quoted `'---'` value are all
+ * left alone. Tests cover each of those.
+ */
+function isDocumentless(content: string): boolean {
+  return content
+    .split('\n')
+    .every((line) => /^\s*$/.test(line) || /^\s*#/.test(line) || /^(---|\.\.\.)\s*$/.test(line) || /^%\S/.test(line));
+}
+
 function parseYamlContent(content: string, filePath: string, packsRoot: string, visited: Set<string>): unknown {
-  if (content.trim().length === 0) return null;
+  if (isDocumentless(content)) return null;
   const schema = buildSchema(filePath, packsRoot, visited);
   try {
     return yaml.load(content, { schema });
@@ -119,10 +147,15 @@ function parseYamlContent(content: string, filePath: string, packsRoot: string, 
     // NOT_RESOLVED instead of throwing would collapse them all into an opaque
     // "cannot resolve a node with !<!nr> explicit tag".)
     if (err instanceof AppException) throw err;
-    // js-yaml 5 THROWS on a document-less input where v4 returned undefined/null: '' and '   ' are
-    // already handled by the guard above, but a comment-only file is not, and would otherwise
-    // surface as a baffling `INVALID_PACK_DATA: invalid YAML in ...`. A pack author leaving a
-    // placeholder of comments is entirely normal, so treat it as v4 did and yield null.
+    // Backstop for the throwing half of the v4/v5 document-less disagreement. isDocumentless()
+    // above should already have returned null for every input that reaches this, so this branch is
+    // belt-and-braces for a shape not anticipated there.
+    //
+    // NOTE THE COUPLING: it discriminates on js-yaml's own prose because v5's YAMLException carries
+    // no error code — `{ name, reason, mark, message }` only, verified against 5.4.2. A future
+    // js-yaml release that rewords this message silently disables this branch; the guard above is
+    // what keeps that from mattering, which is the other reason to normalise before parsing rather
+    // than only here.
     if (err instanceof yaml.YAMLException && /the input is empty/i.test(err.message)) {
       return null;
     }

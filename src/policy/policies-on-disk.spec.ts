@@ -28,7 +28,15 @@ function loadRealParticipantIds(): Set<string> {
   const ids = new Set<string>();
   for (const file of files) {
     const raw = fs.readFileSync(path.join(PARTICIPANTS_DIR, file), 'utf-8');
-    const roster = yaml.load(raw) as Array<{ id: string; role: string }>;
+    // JSON_SCHEMA explicitly, to match what production actually does. These are the same files
+    // `src/registry/include-resolver.ts` reads through `loadYamlWithIncludes`, and that uses
+    // JSON_SCHEMA — whereas a bare `yaml.load(raw)` gets js-yaml's DEFAULT schema, which since
+    // js-yaml 5 is CORE_SCHEMA. The two dialects disagree: under CORE_SCHEMA `~`/`Null` are null,
+    // `True`/`False` are booleans and `+5`/`007` are numbers, while under JSON_SCHEMA every one of
+    // those is a string. A roster using any of them would therefore mean one thing to this spec and
+    // another to the loader, and this spec would be asserting against a shape production never sees.
+    // No roster uses them today; pinning the schema is what keeps that from becoming silent.
+    const roster = yaml.load(raw, { schema: yaml.JSON_SCHEMA }) as Array<{ id: string; role: string }>;
     for (const participant of roster) {
       ids.add(participant.id);
     }

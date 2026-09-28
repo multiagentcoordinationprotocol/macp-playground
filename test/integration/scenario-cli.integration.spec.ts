@@ -102,6 +102,8 @@ spec:
       ['a mapping', '{ nested: value }'],
       ['a sequence', '[a, b]'],
       ['an explicit null', 'null'],
+      // NOT '~'. Under js-yaml 5 that is the STRING '~', which is a legitimate one-character
+      // description and correctly produces no finding — pinned separately below. See DECISIONS.md.
       ['an empty string', "''"],
       ['a whitespace-only string', "'   '"]
     ])('warns (never throws) when a commitment description is %s', async (_label, yamlValue) => {
@@ -366,6 +368,8 @@ spec:
       ['a mapping', '{ nested: value }'],
       ['a sequence', '[a, b]'],
       ['an explicit null', 'null'],
+      // NOT '~'. Under js-yaml 5 that is the STRING '~', which is a legitimate one-character
+      // description and correctly produces no finding — pinned separately below. See DECISIONS.md.
       ['an empty string', "''"],
       ['a whitespace-only string', "'   '"]
     ])('reports a finding (never throws) when a commitment description is %s', async (_label, yamlValue) => {
@@ -414,6 +418,57 @@ spec:
         // nothing — a thrown TypeError never becomes a report line at all, it rejects the promise.
         const logLines = logSpy.mock.calls.map((call) => String(call[0]));
         expect(logLines.some((line) => line.includes('scenario:lint') && line.includes('1 error(s)'))).toBe(true);
+      } finally {
+        logSpy.mockRestore();
+        errSpy.mockRestore();
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
+    // The js-yaml 5 counterpart to the block above, and the case that CAUGHT the upgrade's biggest
+    // behaviour change. Under js-yaml 4 `description: ~` parsed as null and produced a finding;
+    // under 5 it is the one-character STRING '~' and correctly produces none, because v5's
+    // JSON_SCHEMA accepts only JSON's spelling of null. That is a deliberate, documented outcome
+    // (see DECISIONS.md — we chose to document rather than coerce '~' back to null, which would
+    // break a legitimate `~` description). Asserting it at the CLI layer is what stops the decision
+    // being silently reversed: a future coercion in scripts/scenario/lint.ts, or a js-yaml release
+    // that restored `~` -> null, would both turn this red.
+    it('reports NO finding for description: ~ — under js-yaml 5 that is the string "~", not null', async () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-lint-tilde-desc-'));
+      try {
+        fs.mkdirSync(path.join(tmp, 'packs/tildeprobe/scenarios/probe/1.0.0'), { recursive: true });
+        fs.writeFileSync(
+          path.join(tmp, 'packs/tildeprobe/pack.yaml'),
+          'apiVersion: scenarios.macp.dev/v1\nkind: ScenarioPack\nmetadata: { slug: tildeprobe, name: Tilde Probe }\n'
+        );
+        fs.writeFileSync(
+          path.join(tmp, 'packs/tildeprobe/scenarios/probe/1.0.0/scenario.yaml'),
+          `apiVersion: scenarios.macp.dev/v1
+kind: ScenarioVersion
+metadata: { pack: tildeprobe, scenario: probe, version: 1.0.0, name: Probe }
+spec:
+  inputs: { schema: { type: object } }
+  launch:
+    modeName: macp.mode.decision.v1
+    modeVersion: '1'
+    configurationVersion: c
+    ttlMs: 1000
+    commitments:
+      - id: probe-commitment
+        description: ~
+`
+        );
+
+        const code = await runLint({
+          target: path.join(tmp, 'packs'),
+          packsRoot: path.join(tmp, 'packs')
+        });
+
+        expect(code).toBe(0);
+        const errorLines = errSpy.mock.calls.map((call) => String(call[0]));
+        expect(errorLines.some((line) => line.includes('probe-commitment'))).toBe(false);
       } finally {
         logSpy.mockRestore();
         errSpy.mockRestore();

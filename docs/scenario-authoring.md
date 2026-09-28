@@ -214,6 +214,38 @@ launch:
 
 **When to reach for it.** Any time the same fragment is copy-pasted across two or more scenarios, or any time a single field crosses ~50 lines of inline data.
 
+## Writing scalars: pack YAML accepts only JSON spellings
+
+Pack files are parsed with js-yaml's `JSON_SCHEMA`, deliberately — it keeps YAML 1.1's surprise
+coercions out, so a mode name like `on` or a version like `2024-01-15` stays the text you wrote
+instead of turning into a boolean or a `Date`.
+
+The trade-off is that **`null`, `true`, `false` and numbers must be written the way JSON writes
+them.** Anything outside that grammar is a plain string. This is silent — nothing errors, the value
+simply arrives as text:
+
+| If you write | You get | Write this instead |
+|---|---|---|
+| `key: ~` · `key: Null` · `key: NULL` | the strings `'~'`, `'Null'`, `'NULL'` | `key: null`, or omit the key |
+| `key:` with no value | the empty string `''` | `key: null`, or omit the key |
+| `key: True` · `key: TRUE` | the strings `'True'`, `'TRUE'` | `key: true` |
+| `key: False` · `key: FALSE` | the strings `'False'`, `'FALSE'` | `key: false` |
+| `key: +5` · `key: .5` · `key: 007` | the strings `'+5'`, `'.5'`, `'007'` | `key: 5`, `key: 0.5`, `key: 7` |
+| `key: 0x1F` · `key: 0o17` · `key: 0b101` | the strings `'0x1F'`, `'0o17'`, `'0b101'` | the decimal value |
+| `key: 1_000` | the string `'1_000'` | `key: 1000` |
+| `key: .inf` · `key: .nan` | the strings `'.inf'`, `'.nan'` | avoid; use a real bound |
+
+`null`, `true`, `false`, `42`, `-5` and `0.5` all behave exactly as you would expect.
+
+**The two that bite hardest:**
+
+- **`description: ~`** meaning "no description" ships a commitment whose description is a literal
+  tilde. `npm run scenario:lint` sees a non-empty string and reports nothing.
+- **`someFlag: False`** is the string `'False'`, which is **truthy** in JavaScript — so a flag you
+  meant to switch off reads as on. Always lowercase `false`.
+
+If a value must be absent, prefer omitting the key entirely over any spelling of null.
+
 ## Sharing fragments across scenarios
 
 Conventionally, fragments live under `packs/_shared/` (the leading underscore tells the loader to skip the directory during pack discovery). The seeded layout:

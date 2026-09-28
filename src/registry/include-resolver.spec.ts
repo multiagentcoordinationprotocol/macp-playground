@@ -1,7 +1,6 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import * as yaml from 'js-yaml';
 import { loadYamlWithIncludes } from './include-resolver';
 import { AppException } from '../errors/app-exception';
 import { ErrorCode } from '../errors/error-codes';
@@ -227,38 +226,97 @@ describe('loadYamlWithIncludes', () => {
       });
     });
 
-    it('no longer treats ~, Null, NULL or an empty value as null — only lowercase null', () => {
-      // THE BIGGEST BEHAVIOUR CHANGE IN THIS UPGRADE, and wider than the upgrade plan recorded.
-      // The plan named only `~`; measured against both versions, FOUR spellings changed:
+    it('accepts ONLY JSON spellings for null, booleans and numbers — everything else is a string', () => {
+      // THE BIGGEST BEHAVIOUR CHANGE IN THIS UPGRADE, and considerably wider than the upgrade plan
+      // recorded. The plan named 4 constructs; measured against js-yaml 4.3.2 and 5.4.2 with the
+      // same JSON_SCHEMA, FIFTEEN changed. The unifying rule is simple: v5's JSON_SCHEMA is JSON,
+      // and JSON has exactly one spelling for null, for true and for false, and a single number
+      // grammar. Anything outside that grammar is now a plain string.
       //
-      //   YAML        js-yaml 4 JSON_SCHEMA   js-yaml 5 JSON_SCHEMA
-      //   ~           null                    '~'      (string)
-      //   Null        null                    'Null'   (string)
-      //   NULL        null                    'NULL'   (string)
-      //   key:        null                    ''       (empty string)
-      //   null        null                    null     (unchanged)
+      //   nulls    ~ Null NULL and a bare `key:`   ->  '~' 'Null' 'NULL' ''
+      //   booleans True TRUE False FALSE           ->  'True' 'TRUE' 'False' 'FALSE'
+      //   numbers  +5 .5 007 0b101 0o17 0x1F       ->  '+5' '.5' '007' '0b101' '0o17' '0x1F'
+      //            .inf .nan 1_000                ->  '.inf' '.nan' '1_000'
+      //   unchanged: null true false 42 -5 0.5 and (already strings) yes on off no 2024-01-15 12:30
       //
-      // v5's JSON_SCHEMA follows JSON strictly, and JSON spells null exactly one way. This is a
-      // SILENT change: nothing throws, a field simply arrives as a short string instead of null, so
-      // any `if (!value)` check still treats '' as absent while '~' / 'Null' / 'NULL' now look
-      // PRESENT. A pack author writing `description: ~` to mean "none" now ships a commitment whose
-      // description is a literal tilde, and the lint check passes it.
+      // THE DANGEROUS ROW IS `False`. A null degrading to '~' still looks odd on inspection, but
+      // 'False' is a non-empty string and therefore TRUTHY — a governance flag written `False`
+      // silently inverts. Nothing throws in any of these cases; a field simply arrives as a short
+      // string, and while '' still reads as absent to a truthiness check, '~'/'Null'/'False' read as
+      // PRESENT/ENABLED. A pack author writing `description: ~` to mean "none" ships a commitment
+      // whose description is a literal tilde, and scenario:lint passes it.
       //
-      // Verified safe for this repo at the time of the upgrade: no `~`/`Null`/`NULL` value occurs in
-      // any file under packs/ or test/fixtures/packs/ (grepped), every bare `key:` there is a parent
+      // Verified safe for this repo at the time of the upgrade: none of the fifteen occurs as a value
+      // or sequence item in any file under packs/, test/fixtures/packs/, policies/ or schemas/
+      // (grepped for all of them, not just the nulls), every bare `key:` in those trees is a parent
       // of an indented block rather than an empty value, and packs-on-disk.spec.ts confirms all 13
       // shipped files parse byte-identically to the fixture generated under v4.
       const file = writeFile(
         'a.yaml',
-        ['tilde: ~', 'titlecase: Null', 'upper: NULL', 'lower: null', 'empty:'].join('\n') + '\n'
+        [
+          'tilde: ~',
+          'titlecase: Null',
+          'upperNull: NULL',
+          'lowerNull: null',
+          'emptyValue:',
+          'lowerTrue: true',
+          'titleTrue: True',
+          'upperTrue: TRUE',
+          'lowerFalse: false',
+          'titleFalse: False',
+          'upperFalse: FALSE',
+          'plusFive: +5',
+          'minusFive: -5',
+          'leadingDot: .5',
+          'zeroDot: 0.5',
+          'octalish: 007',
+          'binary: 0b101',
+          'octal: 0o17',
+          'hex: 0x1F',
+          'inf: .inf',
+          'nan: .nan',
+          'underscored: 1_000',
+          'plainInt: 42'
+        ].join('\n') + '\n'
       );
       expect(loadYamlWithIncludes(file, tmpRoot)).toEqual({
+        // Nulls: only the JSON spelling survives.
         tilde: '~',
         titlecase: 'Null',
-        upper: 'NULL',
-        lower: null,
-        empty: ''
+        upperNull: 'NULL',
+        lowerNull: null,
+        emptyValue: '',
+        // Booleans: only the JSON spellings survive. The capitalised forms become TRUTHY strings.
+        lowerTrue: true,
+        titleTrue: 'True',
+        upperTrue: 'TRUE',
+        lowerFalse: false,
+        titleFalse: 'False',
+        upperFalse: 'FALSE',
+        // Numbers: only the JSON grammar survives.
+        plusFive: '+5',
+        minusFive: -5,
+        leadingDot: '.5',
+        zeroDot: 0.5,
+        octalish: '007',
+        binary: '0b101',
+        octal: '0o17',
+        hex: '0x1F',
+        inf: '.inf',
+        nan: '.nan',
+        underscored: '1_000',
+        plainInt: 42
       });
+    });
+
+    it('makes the capitalised booleans truthy, which is the sharpest edge of the JSON-only rule', () => {
+      // Separated out and asserted on truthiness directly, because the table above is easy to read
+      // as a cosmetic type change. It is not: this is the shape of a silently inverted control.
+      const file = writeFile('a.yaml', 'vetoEnabled: False\n');
+      const parsed = loadYamlWithIncludes(file, tmpRoot) as Record<string, unknown>;
+      expect(parsed.vetoEnabled).toBe('False');
+      expect(Boolean(parsed.vetoEnabled)).toBe(true);
+      // Which is the exact opposite of what the author wrote, and of what js-yaml 4 produced.
     });
 
     it('wraps a genuinely malformed document as INVALID_PACK_DATA', () => {
@@ -278,23 +336,26 @@ describe('loadYamlWithIncludes', () => {
       expect((caught as AppException).message).toContain('a.yaml');
     });
 
-    it('is a load-only tag: dumping an included value never re-emits !include', () => {
-      // Asserts the observable PROPERTY the tag's `identify: () => false` exists to guarantee: a
-      // loaded pack round-trips through dump/load without `!include` reappearing against an inlined
-      // object, which the next load would then try to treat as a path.
-      //
-      // Note what this does NOT do: it cannot execute `identify` itself. `buildSchema` is private
-      // and nothing in the module dumps, so the tag-bearing schema never reaches a dump call — which
-      // is exactly why `identify` shows as the module's one uncovered line. Exporting buildSchema
-      // purely to reach it would weaken the boundary for a coverage number, so the line stays
-      // uncovered and this test pins the behaviour a reader actually depends on.
-      writeFile('shared.yaml', 'value: 42\n');
-      const main = writeFile('a.yaml', 'nested: !include ./shared.yaml\n');
-      const loaded = loadYamlWithIncludes(main, tmpRoot);
+    it('returns null for a document-marker-only file, as js-yaml 4 did', () => {
+      // A file whose only content is `---` (optionally with a %YAML directive, comments or blank
+      // lines) is a document with no content. v4's load() returned null; v5 returns '' — and it does
+      // NOT throw, so the YAMLException branch never fires, while `content.trim()` is non-empty so
+      // the blank-content guard does not fire either. Without an explicit guard this silently became
+      // an empty string: the same class of quiet degradation as the JSON-only rule above.
+      expect(loadYamlWithIncludes(writeFile('a.yaml', '---\n'), tmpRoot)).toBeNull();
+      expect(loadYamlWithIncludes(writeFile('b.yaml', '%YAML 1.2\n---\n'), tmpRoot)).toBeNull();
+      expect(loadYamlWithIncludes(writeFile('c.yaml', '---\n# only a comment\n...\n'), tmpRoot)).toBeNull();
+    });
 
-      const dumped = yaml.dump(loaded, { schema: yaml.JSON_SCHEMA });
-      expect(dumped).not.toContain('!include');
-      expect(yaml.load(dumped, { schema: yaml.JSON_SCHEMA })).toEqual({ nested: { value: 42 } });
+    it('does not mistake real content for a document-less file', () => {
+      // The guard keys off EVERY line being blank / a comment / a marker / a directive, so it must
+      // not fire when any line carries content — including content that merely starts with one of
+      // the characters the guard looks for. These three are the ways a naive guard gets it wrong.
+      expect(loadYamlWithIncludes(writeFile('a.yaml', '---\nkey: value\n'), tmpRoot)).toEqual({ key: 'value' });
+      expect(loadYamlWithIncludes(writeFile('b.yaml', 'key: |\n  # not a comment, a string\n'), tmpRoot)).toEqual({
+        key: '# not a comment, a string\n'
+      });
+      expect(loadYamlWithIncludes(writeFile('c.yaml', "key: '---'\n"), tmpRoot)).toEqual({ key: '---' });
     });
 
     it('propagates an AppException out of a nested include unwrapped, not as a YAMLException', () => {
