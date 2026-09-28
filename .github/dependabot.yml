@@ -37,6 +37,17 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "langgraph"
         update-types: ["version-update:semver-major"]
+      # openai is capped at 3.3.0 by a chain none of our code controls:
+      # openai>=3.3.1 requires jiter>=0.16.0; every instructor release up to
+      # 1.17.0 requires jiter<0.15; every crewai release requires
+      # instructor>=1.3.3. So any openai 3.x PR above 3.3.0 is unresolvable
+      # while crewai is installed — this is what made Dependabot PR #76
+      # (openai 3.16.2) permanently red. We hold at the highest 2.x instead of
+      # taking 3.3.0, because 3.3.0 would freeze crewai at 0.203.2 forever
+      # (crewai>=1.10.0 declares openai<3) and no worker imports openai
+      # directly. Revisit when instructor relaxes its jiter ceiling.
+      - dependency-name: "openai"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /

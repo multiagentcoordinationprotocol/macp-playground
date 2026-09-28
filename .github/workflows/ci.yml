@@ -109,7 +109,7 @@ jobs:
       # fails. `--ignore-installed` stops an already-present package from short-circuiting the
       # resolver and hiding a conflict.
       - name: Resolve agent framework pins (gate — a conflict here used to surface only in `docker`)
-        run: pip install --dry-run --ignore-installed -r agents/requirements.txt
+        run: pip install --dry-run --ignore-installed -c agents/constraints.txt -r agents/requirements.txt
       - run: pip install -r agents/requirements-dev.txt
       - name: Lint Python workers
         run: ruff check agents/
