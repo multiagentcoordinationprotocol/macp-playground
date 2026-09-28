@@ -119,9 +119,7 @@ describe('Example Run (integration)', () => {
       const result = (await authenticatedCtx.client.runExample(fraudScenarioRunRequest())) as any;
 
       expect(authenticatedCtx.mockControlPlane?.createRunRequests).toHaveLength(1);
-      expect(authenticatedCtx.mockControlPlane!.createRunRequests[0].headers['authorization']).toBe(
-        'Bearer demo-key'
-      );
+      expect(authenticatedCtx.mockControlPlane!.createRunRequests[0].headers['authorization']).toBe('Bearer demo-key');
       expect(result.controlPlaneRun).toBeDefined();
     });
   });

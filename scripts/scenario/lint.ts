@@ -102,12 +102,20 @@ function lintPack(
   try {
     pack = loadYamlWithIncludes(packYaml, packsRoot) as PackFile;
   } catch (err) {
-    findings.push({ level: 'error', file: packYaml, message: `failed to load: ${err instanceof Error ? err.message : String(err)}` });
+    findings.push({
+      level: 'error',
+      file: packYaml,
+      message: `failed to load: ${err instanceof Error ? err.message : String(err)}`
+    });
     return findings;
   }
 
   if (!SLUG_RE.test(pack.metadata?.slug ?? '')) {
-    findings.push({ level: 'error', file: packYaml, message: `pack slug must be kebab-case: "${pack.metadata?.slug}"` });
+    findings.push({
+      level: 'error',
+      file: packYaml,
+      message: `pack slug must be kebab-case: "${pack.metadata?.slug}"`
+    });
   }
 
   for (const versionDir of listScenarioVersionDirs(packDir)) {
@@ -116,7 +124,11 @@ function lintPack(
     try {
       scenario = loadYamlWithIncludes(scenarioYaml, packsRoot) as ScenarioVersionFile;
     } catch (err) {
-      findings.push({ level: 'error', file: scenarioYaml, message: `failed to load: ${err instanceof Error ? err.message : String(err)}` });
+      findings.push({
+        level: 'error',
+        file: scenarioYaml,
+        message: `failed to load: ${err instanceof Error ? err.message : String(err)}`
+      });
       continue;
     }
 
@@ -125,9 +137,13 @@ function lintPack(
       findings.push({ level: 'error', file: scenarioYaml, message: `scenario slug must be kebab-case: "${slug}"` });
     }
 
-    // Commitment description rule
+    // Commitment description rule. `typeof`-guarded rather than truthiness-guarded: `scenario` is
+    // an unvalidated `as` cast over arbitrary YAML, so `description` can be any type a pack author
+    // typed. `!c.description || !c.description.trim()` throws on a truthy non-string (`42`), and
+    // `!c.description?.trim()` throws on any non-string at all (`0`, `false`) — either way one
+    // malformed pack aborts the whole lint run instead of reporting a finding. This reports.
     for (const c of scenario?.spec?.launch?.commitments ?? []) {
-      if (!c.description || !c.description.trim()) {
+      if (typeof c.description !== 'string' || !c.description.trim()) {
         findings.push({ level: 'error', file: scenarioYaml, message: `commitment "${c.id}" missing description` });
       }
     }
@@ -135,7 +151,11 @@ function lintPack(
     // policyVersion existence
     const policyVersion = scenario?.spec?.launch?.policyVersion;
     if (policyVersion && policyVersion !== 'policy.default' && !knownPolicies.has(policyVersion)) {
-      findings.push({ level: 'warn', file: scenarioYaml, message: `policyVersion "${policyVersion}" not found in /${POLICIES_DIR_NAME}` });
+      findings.push({
+        level: 'warn',
+        file: scenarioYaml,
+        message: `policyVersion "${policyVersion}" not found in /${POLICIES_DIR_NAME}`
+      });
     }
 
     // policyVersion rules-schema conformance (#81) — runs against policy.default.json too,
@@ -162,7 +182,11 @@ function lintPack(
     // agentRef existence
     for (const p of scenario?.spec?.launch?.participants ?? []) {
       if (!knownAgentRefs.has(p.agentRef)) {
-        findings.push({ level: 'error', file: scenarioYaml, message: `participant "${p.id}" agentRef "${p.agentRef}" not in catalog` });
+        findings.push({
+          level: 'error',
+          file: scenarioYaml,
+          message: `participant "${p.id}" agentRef "${p.agentRef}" not in catalog`
+        });
       }
     }
 
@@ -175,7 +199,10 @@ function lintPack(
         try {
           const tmpl = loadYamlWithIncludes(tp, packsRoot) as ScenarioTemplateFile;
           const overrideCommit = tmpl?.spec?.overrides?.launch?.commitments;
-          if (Array.isArray(overrideCommit) && overrideCommit.length < (scenario?.spec?.launch?.commitments?.length ?? 0)) {
+          if (
+            Array.isArray(overrideCommit) &&
+            overrideCommit.length < (scenario?.spec?.launch?.commitments?.length ?? 0)
+          ) {
             findings.push({
               level: 'warn',
               file: tp,
@@ -183,7 +210,11 @@ function lintPack(
             });
           }
         } catch (err) {
-          findings.push({ level: 'error', file: tp, message: `failed to load: ${err instanceof Error ? err.message : String(err)}` });
+          findings.push({
+            level: 'error',
+            file: tp,
+            message: `failed to load: ${err instanceof Error ? err.message : String(err)}`
+          });
         }
       }
     }
@@ -235,7 +266,6 @@ export async function runLint(opts: LintOptions): Promise<number> {
 
   const packDirs = listPackDirs(target);
   if (packDirs.length === 0) {
-    // eslint-disable-next-line no-console
     console.error(`no packs found under ${target}`);
     return 1;
   }
@@ -246,15 +276,15 @@ export async function runLint(opts: LintOptions): Promise<number> {
     const findings = lintPack(packDir, packsRoot, knownAgentRefs, knownPolicies, rulesValidator, validatedPolicyIds);
     for (const f of findings) {
       const tag = f.level === 'error' ? 'FAIL' : 'WARN';
+      // eslint-disable-next-line no-console -- routing: failures to stderr, warnings to stdout; the report IS the output
       const stream = f.level === 'error' ? console.error : console.log;
-      // eslint-disable-next-line no-console
       stream(`  ${tag}  ${path.relative(process.cwd(), f.file)}: ${f.message}`);
       if (f.level === 'error') errors++;
       else warns++;
     }
   }
 
-  // eslint-disable-next-line no-console
+  // eslint-disable-next-line no-console -- the summary line on stdout is this command's output
   console.log(`scenario:lint  ${packDirs.length} pack(s) — ${errors} error(s), ${warns} warning(s)`);
   return errors > 0 ? 1 : 0;
 }

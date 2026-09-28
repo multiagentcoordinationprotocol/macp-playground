@@ -63,12 +63,10 @@ function titleize(slug: string): string {
 
 export async function runNew(opts: NewOptions): Promise<number> {
   if (!SLUG_RE.test(opts.pack)) {
-    // eslint-disable-next-line no-console
     console.error(`pack slug must match ${SLUG_RE} (kebab-case): ${opts.pack}`);
     return 1;
   }
   if (!SLUG_RE.test(opts.scenario)) {
-    // eslint-disable-next-line no-console
     console.error(`scenario slug must match ${SLUG_RE} (kebab-case): ${opts.scenario}`);
     return 1;
   }
@@ -78,7 +76,6 @@ export async function runNew(opts: NewOptions): Promise<number> {
   const versionDir = path.join(packDir, 'scenarios', opts.scenario, opts.version);
 
   if (fs.existsSync(versionDir)) {
-    // eslint-disable-next-line no-console
     console.error(`refusing to overwrite existing directory: ${versionDir}`);
     return 1;
   }
@@ -90,7 +87,6 @@ export async function runNew(opts: NewOptions): Promise<number> {
     const srcDir = path.join(packsRoot, src.pack, 'scenarios', src.scenario, src.version);
     if (!fs.existsSync(srcDir)) {
       fs.rmdirSync(versionDir);
-      // eslint-disable-next-line no-console
       console.error(`source scenario not found: ${srcDir}`);
       return 1;
     }
@@ -98,7 +94,8 @@ export async function runNew(opts: NewOptions): Promise<number> {
     // Rewrite scenario.yaml metadata block
     const scenarioYaml = path.join(versionDir, 'scenario.yaml');
     if (fs.existsSync(scenarioYaml)) {
-      const content = fs.readFileSync(scenarioYaml, 'utf-8')
+      const content = fs
+        .readFileSync(scenarioYaml, 'utf-8')
         .replace(/^(\s*pack:).*$/m, `$1 ${opts.pack}`)
         .replace(/^(\s*scenario:).*$/m, `$1 ${opts.scenario}`)
         .replace(/^(\s*version:).*$/m, `$1 ${opts.version}`);
@@ -124,9 +121,9 @@ export async function runNew(opts: NewOptions): Promise<number> {
   const strayPackYaml = path.join(versionDir, 'pack.yaml');
   if (fs.existsSync(strayPackYaml)) fs.unlinkSync(strayPackYaml);
 
-  // eslint-disable-next-line no-console
+  // eslint-disable-next-line no-console -- the CLI reports the scaffolded path on stdout by design
   console.log(`scenario:new  scaffolded ${opts.pack}/${opts.scenario}@${opts.version}`);
-  // eslint-disable-next-line no-console
+  // eslint-disable-next-line no-console -- second line of the same stdout report
   console.log(`              ${versionDir}`);
   return 0;
 }

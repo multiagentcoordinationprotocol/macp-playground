@@ -52,15 +52,19 @@ async function main(): Promise<number> {
 
     if (localContent !== remoteContent) {
       drift = true;
+      // eslint-disable-next-line no-console -- the drift report on stdout is this script's output
       console.log(`DRIFT: ${file.local} differs from ${REPO}@${REF}`);
     } else {
+      // eslint-disable-next-line no-console -- the drift report on stdout is this script's output
       console.log(`OK: ${file.local} matches ${REPO}@${REF}`);
     }
   }
 
+  // eslint-disable-next-line no-console -- the drift report on stdout is this script's output
   console.log(`\nScratch copies written to ${scratchDir} for manual diffing if needed.`);
 
   if (drift) {
+    // eslint-disable-next-line no-console -- the drift report on stdout is this script's output
     console.log(
       '\nDrift detected. Review the scratch copies, then manually update schemas/policy/ and ' +
         "schemas/policy/README.md's pinned ref (and this script's REF constant) if the change should be adopted."
@@ -68,6 +72,7 @@ async function main(): Promise<number> {
     return 1;
   }
 
+  // eslint-disable-next-line no-console -- the drift report on stdout is this script's output
   console.log('\nNo drift — vendored schemas match the pinned ref.');
   return 0;
 }

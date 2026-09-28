@@ -158,9 +158,7 @@ describe('AUTH-2 JWT minting (integration)', () => {
       const bootstraps = writeSpy.mock.calls.map((call) => call[0] as BootstrapPayload);
       expect(bootstraps).toHaveLength(4);
       for (const bootstrap of bootstraps) {
-        expect(bootstrap.auth_token).toMatch(
-          new RegExp(`^jwt\\.${bootstrap.participant_id}\\.\\d+$`)
-        );
+        expect(bootstrap.auth_token).toMatch(new RegExp(`^jwt\\.${bootstrap.participant_id}\\.\\d+$`));
       }
     });
   });
@@ -192,5 +190,4 @@ describe('AUTH-2 JWT minting (integration)', () => {
       expect(body.errorCode).toBe('AUTH_MINT_FAILED');
     });
   });
-
 });

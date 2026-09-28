@@ -1,0 +1,35 @@
+{
+  // Type-checks the WHOLE repo — src/ plus test/ and scripts/, which the build program
+  // (tsconfig.build.json) deliberately excludes. `scripts/` had no static gate of any kind
+  // before this config existed; `test/` was only ever checked incidentally, by ts-jest, which
+  // suppresses several diagnostic classes by default.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // MANDATORY, not stylistic. tsconfig.json sets "rootDir": "./src", which is inherited, and
+    // a program that also includes test/ and scripts/ then fails with 19 x TS6059
+    // ("not under 'rootDir'"). Widening it back to the repo root is what makes this config
+    // compile at all.
+    "rootDir": ".",
+    "noEmit": true,
+    // Belt-and-braces only — NOT load-bearing, and deliberately kept anyway. Measured on
+    // TypeScript 5.9.3, all four combinations: "rootDir": "." alone -> exit 0; "declaration": false
+    // alone -> exit 2 with 19 x TS6059; neither -> the same 19 x TS6059; both -> exit 0. So rootDir
+    // is the whole fix and this option changes nothing while noEmit is true. It stays as a guard on
+    // the invariant that this config is a gate and must never emit: if noEmit were ever dropped,
+    // the inherited "declaration": true would start writing .d.ts files for test/ and scripts/.
+    "declaration": false,
+    // tsconfig.json declares only ["node"]; test/**/*.ts needs jest's globals.
+    "types": ["node", "jest"],
+    // Deliberately opts OUT of the inherited "incremental": true. This config is a correctness
+    // gate, and a stale .tsbuildinfo is exactly the thing that could let a real failure through
+    // unnoticed. Full check every run, no build-info artifact to go stale.
+    "incremental": false
+  },
+  // `jest.config.ts` is root-level, so no `**` glob reaches it — and it is the file holding
+  // `coverageThreshold`, which makes it the one file whose silent corruption degrades a gate. It
+  // was outside every gate on this branch until it was named here explicitly.
+  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "jest.config.ts"],
+  // Narrower than tsconfig.json's, which also excludes "**/*.spec.ts" — checking the specs is
+  // the entire point here.
+  "exclude": ["node_modules", "dist"]
+}

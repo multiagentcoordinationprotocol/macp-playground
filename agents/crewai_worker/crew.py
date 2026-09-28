@@ -5,6 +5,7 @@ this builds a real Crew with an LLM-powered Agent. Otherwise, falls back
 to deterministic logic.
 """
 
+import logging
 import os
 from typing import Any, Dict
 
@@ -14,6 +15,42 @@ except ImportError:
     from .mappers import build_prompt, score_by_domain
 
 JsonDict = Dict[str, Any]
+
+logger = logging.getLogger('macp.agent')
+
+# Imported at module scope, in its own try, so the outcome is an assertable flag rather than a
+# silently swallowed failure inside build_crew(). It must NOT share the crewai try below: a
+# missing langchain-openai is a *degraded* crewai worker, not an absent one, so it must not flip
+# HAS_CREWAI. Nothing on a constructed Crew can reveal this — crewai coerces whatever `llm` it
+# is handed into its own crewai.llm.LLM and validates nothing, so type(crew).__name__ stays
+# 'Crew' even when the LLM has been dropped entirely (measured against crewai 0.203.2). The flag
+# is therefore the only way CI can gate it; see the construct smoke in .github/workflows/ci.yml.
+#
+# Cost, measured so nobody has to guess: importing langchain_openai eagerly rather than inside
+# build_crew() adds ~0.8s to module import (3.0s -> 3.8s) on the keyless path, which previously
+# skipped it. Paid once per worker process spawn, against a worker that then opens a gRPC channel
+# and runs an LLM turn — worth it to make a silent-degradation hazard gateable.
+try:
+    from langchain_openai import ChatOpenAI
+
+    HAS_LANGCHAIN_OPENAI = True
+    LANGCHAIN_OPENAI_IMPORT_ERROR = ''
+except ImportError as err:
+    ChatOpenAI = None
+    HAS_LANGCHAIN_OPENAI = False
+    LANGCHAIN_OPENAI_IMPORT_ERROR = str(err)
+
+
+def _warn_langchain_openai_unavailable() -> None:
+    """Loud on purpose, and a module-level function rather than an inline call so it is reachable
+    from a test in any install state. An agent answering from crewai's own default LLM instead of
+    the configured one is indistinguishable, in its output, from one answering correctly — so
+    silence here is worse than a crash."""
+    logger.warning(
+        "langchain-openai unavailable (%s) — the crewai agent will fall back to crewai's "
+        'own default LLM. This is a DEGRADED path, not a keyless run.',
+        LANGCHAIN_OPENAI_IMPORT_ERROR,
+    )
 
 
 def _score_result(inputs: JsonDict) -> JsonDict:
@@ -63,11 +100,10 @@ try:
             'allow_delegation': False,
         }
 
-        try:
-            from langchain_openai import ChatOpenAI
+        if HAS_LANGCHAIN_OPENAI:
             agent_kwargs['llm'] = ChatOpenAI(model='gpt-4o-mini', temperature=0, api_key=api_key)
-        except ImportError:
-            pass
+        else:
+            _warn_langchain_openai_unavailable()
 
         compliance_analyst = Agent(**agent_kwargs)
 

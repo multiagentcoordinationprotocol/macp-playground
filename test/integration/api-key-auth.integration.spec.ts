@@ -2,8 +2,7 @@ import { createIntegrationTestApp, IntegrationTestContext } from '../helpers/int
 import { IntegrationTestClient } from '../helpers/integration-test-client';
 import { fraudScenarioRunRequest } from '../fixtures/integration-requests';
 
-const describeIfMock =
-  (process.env.INTEGRATION_CONTROL_PLANE ?? 'mock') === 'mock' ? describe : describe.skip;
+const describeIfMock = (process.env.INTEGRATION_CONTROL_PLANE ?? 'mock') === 'mock' ? describe : describe.skip;
 
 describeIfMock('API Key Authentication (integration, mock-only)', () => {
   describe('when API keys are configured', () => {

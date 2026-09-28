@@ -79,7 +79,7 @@ async function runWorker(): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     jest.isolateModules(() => {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- must be a runtime require inside jest.isolateModules so the worker's top-level side effects re-run per test; a static import would execute once at module load, outside the isolated registry
         require('./risk-decider.worker');
       } catch (e) {
         reject(e);

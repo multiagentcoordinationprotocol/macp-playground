@@ -148,8 +148,7 @@ export class MockControlPlane {
       return;
     }
 
-    const sessionId =
-      (body as { session?: { sessionId?: string } }).session?.sessionId ?? randomUUID();
+    const sessionId = (body as { session?: { sessionId?: string } }).session?.sessionId ?? randomUUID();
 
     res.writeHead(201, { 'content-type': 'application/json' });
     res.end(

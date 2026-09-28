@@ -1,7 +1,9 @@
 """Tests for the CrewAI worker's pure kickoff/result mappers."""
 
+import importlib.util
 import logging
 
+from crewai_worker import crew as crew_module
 from crewai_worker.crew import _score_result, build_crew
 from crewai_worker.mappers import (
     build_prompt,
@@ -371,3 +373,58 @@ class TestBuildPrompt:
         backstory, description = build_prompt('bogus-domain', {})
         assert backstory and description
         assert 'compliance analyst' in backstory
+
+
+class TestLangchainOpenaiFlagContract:
+    """`crew.py` exposes its `langchain_openai` import outcome as a module-level flag so CI can
+    gate it. Nothing on a constructed `Crew` can reveal a dropped LLM — crewai coerces whatever
+    `llm` it receives into its own `crewai.llm.LLM` and validates nothing, so
+    `type(crew).__name__` stays `'Crew'` even when the LLM was never attached (measured against
+    crewai 0.203.2). These tests pin the flag's contract in BOTH install states, so a future
+    refactor cannot quietly delete the thing the image construct smoke asserts on.
+
+    The warning branch itself (`build_crew`'s `else`) is only reachable when crewai IS importable,
+    which it deliberately is not in this test tier — `agents/requirements-dev.txt` excludes the
+    frameworks. It is covered by the construct smoke in `.github/workflows/ci.yml` instead, and
+    that separation is intentional: see the plan's note that `pytest agents/tests` exercises only
+    the fallback branches.
+    """
+
+    def test_flag_is_a_bool(self):
+        assert isinstance(crew_module.HAS_LANGCHAIN_OPENAI, bool)
+
+    def test_flag_and_error_and_symbol_agree(self):
+        # Exactly one coherent state, whichever it is: either the import worked (flag set, no
+        # recorded error, symbol bound) or it did not (flag clear, error recorded, symbol None).
+        if crew_module.HAS_LANGCHAIN_OPENAI:
+            assert crew_module.LANGCHAIN_OPENAI_IMPORT_ERROR == ''
+            assert crew_module.ChatOpenAI is not None
+        else:
+            assert crew_module.LANGCHAIN_OPENAI_IMPORT_ERROR != ''
+            assert crew_module.ChatOpenAI is None
+
+    def test_flag_tracks_langchain_openai_alone_not_crewai(self):
+        # A missing langchain-openai is a DEGRADED crewai worker, not an absent one, so the two
+        # imports must stay in separate try blocks: merging them would make HAS_LANGCHAIN_OPENAI
+        # False whenever crewai happens to be missing, and would flip HAS_CREWAI on a
+        # langchain-openai failure — silently rerouting the worker to its deterministic fallback
+        # for the wrong reason.
+        #
+        # Comparing against importlib is what keeps this non-vacuous rather than a restatement of
+        # the module's own value. Be precise about its reach, though: in THIS tier neither package
+        # is installed, so a merged-try variant would also satisfy it (both flags simply False).
+        # It is the framework-present case that this pins — i.e. the image, where the construct
+        # smoke in `.github/workflows/ci.yml` is the gate that would actually catch a merge.
+        assert isinstance(crew_module.HAS_CREWAI, bool)
+        assert crew_module.HAS_LANGCHAIN_OPENAI == (importlib.util.find_spec('langchain_openai') is not None)
+
+    def test_degraded_warning_is_emitted_and_names_the_import_error(self, caplog):
+        # Calls the production helper, not a copy of its message, so the assertion cannot drift
+        # away from what an operator would actually see mid-demo.
+        with caplog.at_level(logging.WARNING, logger='macp.agent'):
+            crew_module._warn_langchain_openai_unavailable()
+
+        assert 'langchain-openai unavailable' in caplog.text
+        assert 'DEGRADED path, not a keyless run' in caplog.text
+        assert crew_module.LANGCHAIN_OPENAI_IMPORT_ERROR in caplog.text
+        assert [r.levelname for r in caplog.records] == ['WARNING']

@@ -95,7 +95,9 @@ export async function runValidate(opts: ValidateOptions): Promise<number> {
     try {
       ajv.compile(inputSchema);
     } catch (err) {
-      report.errors.push(`spec.inputs.schema is not valid JSON Schema: ${err instanceof Error ? err.message : String(err)}`);
+      report.errors.push(
+        `spec.inputs.schema is not valid JSON Schema: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
 
@@ -190,10 +192,12 @@ export async function runValidate(opts: ValidateOptions): Promise<number> {
     }
   }
 
-  // Commitment description warning
+  // Commitment description warning. `typeof`-guarded, not truthiness-guarded — see the matching
+  // comment in scripts/scenario/lint.ts: `scenario` is an unvalidated cast over arbitrary YAML, so
+  // a non-string `description` must produce a report entry, never a TypeError that kills the run.
   const commitments = scenario?.spec?.launch?.commitments ?? [];
   for (const c of commitments) {
-    if (!c.description || !c.description.trim()) {
+    if (typeof c.description !== 'string' || !c.description.trim()) {
       report.warnings.push(`commitment ${c.id} has no description`);
     }
   }
@@ -203,24 +207,22 @@ export async function runValidate(opts: ValidateOptions): Promise<number> {
 }
 
 function printReport(report: ValidateReport, scenarioPath: string): void {
-  // eslint-disable-next-line no-console
+  // eslint-disable-next-line no-console -- the validation report on stdout is this command's output
   console.log(`scenario:validate  ${scenarioPath}`);
   for (const w of report.warnings) {
-    // eslint-disable-next-line no-console
+    // eslint-disable-next-line no-console -- warnings belong on stdout with the rest of the report
     console.log(`  WARN  ${w}`);
   }
   for (const e of report.errors) {
-    // eslint-disable-next-line no-console
     console.error(`  FAIL  ${e}`);
   }
   if (report.errors.length === 0 && report.warnings.length === 0) {
-    // eslint-disable-next-line no-console
+    // eslint-disable-next-line no-console -- terminal verdict on stdout
     console.log('  OK');
   } else if (report.errors.length === 0) {
-    // eslint-disable-next-line no-console
+    // eslint-disable-next-line no-console -- terminal verdict on stdout
     console.log(`  PASS (${report.warnings.length} warning(s))`);
   } else {
-    // eslint-disable-next-line no-console
     console.error(`  FAILED (${report.errors.length} error(s), ${report.warnings.length} warning(s))`);
   }
 }

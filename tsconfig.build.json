@@ -1,4 +1,14 @@
 {
   "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // Pinned INSIDE dist/ deliberately, which is also where TypeScript put it by default before
+    // tsconfig.json gained "rootDir": "./src". That rootDir relocates the default build-info path
+    // to the repo root, and the consequence is a genuine footgun: `rm -rf dist && npm run build`
+    // then leaves the build-info behind, TypeScript concludes nothing changed, and the build
+    // exits **0 having emitted zero files** — after which `node dist/main.js` runs against
+    // nothing. Keeping the build-info inside the directory it describes makes "delete the output"
+    // mean what everyone assumes it means, so no caller has to know to delete two things.
+    "tsBuildInfoFile": "./dist/tsconfig.build.tsbuildinfo"
+  },
   "exclude": ["node_modules", "dist", "test", "**/*.spec.ts"]
 }
