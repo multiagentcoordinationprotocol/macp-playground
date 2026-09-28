@@ -14,8 +14,16 @@ updates:
       major-updates:
         update-types: ["major"]
     ignore:
-      - dependency-name: "typescript"      # TS 7 major
-        update-types: ["version-update:semver-major"]
+      # typescript is capped at < 6.1.0 by @typescript-eslint's peer range
+      # (">=4.8.4 <6.1.0"), and no v9 of that plugin exists. The pin is
+      # therefore ~6.0.3, not ^6 — and BOTH update types must be ignored, not
+      # just majors: against ~6.0.3 a 6.1.x release is a semver-MINOR that
+      # Dependabot would still propose, and it would violate the peer. (TS 7
+      # exists but is the native-port rewrite; the ecosystem does not accept it
+      # yet, so the major ignore stays too.)
+      - dependency-name: "typescript"
+        update-types:
+          ["version-update:semver-major", "version-update:semver-minor"]
 
   - package-ecosystem: pip
     directory: /agents
@@ -28,9 +36,13 @@ updates:
       major-updates:
         update-types: ["major"]
     ignore:
-      # LangChain 1.x is a large breaking migration — do it deliberately.
-      - dependency-name: "langchain"
-        update-types: ["version-update:semver-major"]
+      # The LangChain family is now ON 1.x, so these guard 1.x -> 2.x. Bump the
+      # three together or not at all: the compatible window is narrow (langgraph
+      # 1.2.12 requires langchain-core >=1.4.7, langchain-openai 1.6.6 requires
+      # >=1.6.4), so a single-package major will usually be unresolvable.
+      # The `langchain` meta-package itself is no longer a dependency — it was
+      # dropped rather than upgraded, since no worker imports it — so it needs
+      # no entry here.
       - dependency-name: "langchain-core"
         update-types: ["version-update:semver-major"]
       - dependency-name: "langchain-openai"
