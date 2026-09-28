@@ -100,6 +100,8 @@ spec:
       ['a truthy number', '42'],
       ['a boolean', 'false'],
       ['a mapping', '{ nested: value }'],
+      ['a sequence', '[a, b]'],
+      ['an explicit null', '~'],
       ['an empty string', "''"],
       ['a whitespace-only string', "'   '"]
     ])('warns (never throws) when a commitment description is %s', async (_label, yamlValue) => {
@@ -362,6 +364,8 @@ spec:
       ['a truthy number', '42'],
       ['a boolean', 'false'],
       ['a mapping', '{ nested: value }'],
+      ['a sequence', '[a, b]'],
+      ['an explicit null', '~'],
       ['an empty string', "''"],
       ['a whitespace-only string', "'   '"]
     ])('reports a finding (never throws) when a commitment description is %s', async (_label, yamlValue) => {
@@ -404,8 +408,12 @@ spec:
         expect(errorLines.some((line) => line.includes('FAIL') && line.includes('commitment "probe-commitment"'))).toBe(
           true
         );
-        // And specifically NOT the crash-shaped "failed to load" finding.
-        expect(errorLines.some((line) => line.includes('is not a function'))).toBe(false);
+        // And the run REACHED ITS END rather than aborting partway: the summary is printed after
+        // every pack has been linted, so its presence is what distinguishes "reported a finding"
+        // from "threw and unwound". Asserting the absence of a TypeError string would prove
+        // nothing — a thrown TypeError never becomes a report line at all, it rejects the promise.
+        const logLines = logSpy.mock.calls.map((call) => String(call[0]));
+        expect(logLines.some((line) => line.includes('scenario:lint') && line.includes('1 error(s)'))).toBe(true);
       } finally {
         logSpy.mockRestore();
         errSpy.mockRestore();

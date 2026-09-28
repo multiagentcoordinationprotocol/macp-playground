@@ -6,12 +6,22 @@
     // ESLint never emits, so nothing here depends on the output layout — this keeps the two
     // wide-coverage configs consistent rather than leaving one of them latently wrong.
     "rootDir": ".",
+    // Opts out of the inherited "incremental": true, for the same reason tsconfig.typecheck.json
+    // does: a stale .tsbuildinfo is exactly what could let a real finding go unreported. Without
+    // this, running lint writes a 322 KB ./tsconfig.eslint.tsbuildinfo — harmless in CI (gitignored,
+    // and `npm ci` never produces one) but a local staleness hazard for no benefit, and it left the
+    // two wide-coverage configs inconsistent on precisely the point the comment above claims they
+    // agree on.
+    "incremental": false,
     // Without jest's globals, every `expect`/`it`/`describe` in test/**/*.ts resolves to `any`,
     // and a typed rule cannot see through `any` — so an un-awaited `expect(...).resolves.toBe(x)`
     // is silently MISSED by no-floating-promises, which is one of the two rules this whole
     // widening exists to enforce. Measured: it errors with these types, passes without them.
     "types": ["node", "jest"]
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"],
+  // `jest.config.ts` is here deliberately, and it is not cosmetic: it is the file that holds
+  // `coverageThreshold`, so it is the one file whose silent corruption DEGRADES A GATE — and it sat
+  // outside every gate this branch adds. Root-level, so no `**` glob above reached it.
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "jest.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

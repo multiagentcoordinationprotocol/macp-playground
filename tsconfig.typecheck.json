@@ -25,7 +25,10 @@
     // unnoticed. Full check every run, no build-info artifact to go stale.
     "incremental": false
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts"],
+  // `jest.config.ts` is root-level, so no `**` glob reaches it — and it is the file holding
+  // `coverageThreshold`, which makes it the one file whose silent corruption degrades a gate. It
+  // was outside every gate on this branch until it was named here explicitly.
+  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "jest.config.ts"],
   // Narrower than tsconfig.json's, which also excludes "**/*.spec.ts" — checking the specs is
   // the entire point here.
   "exclude": ["node_modules", "dist"]
