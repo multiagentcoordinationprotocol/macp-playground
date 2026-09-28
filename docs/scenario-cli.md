@@ -71,6 +71,23 @@ With `--from fraud/high-value-new-device@1.0.0`, copies an existing scenario dir
 
 Refuses to overwrite an existing version directory. Slugs must be kebab-case (`[a-z0-9][a-z0-9-]*`).
 
+> **`--version` now actually works.** From the CLI's first commit until September 2026 it did not:
+> the program-level `-V, --version` flag shadowed this option, so `--version 1.2.3` printed the
+> CLI's own version (`0.2.0`), exited **0**, and scaffolded **nothing** — while this page documented
+> it as working. The program's flag is now `-V, --cli-version`, which frees `--version` for this
+> subcommand. If you scripted around the bug by omitting `--version` and renaming the `1.0.0`
+> directory afterwards, that workaround is no longer needed.
+
+### Printing the CLI's own version
+
+```bash
+npm run scenario -- --cli-version      # -> 0.2.0
+```
+
+Deliberately **not** `--version`: that spelling belongs to `scenario:new`'s `--version <semver>`
+option (see above), and commander resolves a program/subcommand collision in favour of the program.
+A bare `npm run scenario -- --version` is now an unknown-option error rather than a silent no-op.
+
 ### `scenario:lint`
 
 ```bash

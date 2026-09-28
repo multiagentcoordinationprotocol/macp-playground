@@ -470,5 +470,79 @@ spec:
       expect(result.code).toBe(0);
       expect(result.stdout).toContain('error(s)');
     });
+
+    // The last ungated commander surface, and the one that matters most.
+    //
+    // The three `runNew` tests above call the function directly, bypassing argv parsing entirely —
+    // so nothing covered the path where commander actually resolves flags. That path was BROKEN:
+    // the program-level `-V, --version` shadowed `new`'s own `--version <semver>`, and
+    // `scenario new demo my-sample --version 1.2.3` printed `0.2.0`, exited 0, and created nothing.
+    // Exit 0 is exactly what the bug produces, so asserting on the exit code alone would not have
+    // caught it — this test asserts on the scaffolded FILESYSTEM TREE, at the requested version.
+    //
+    // `new` is also the only subcommand with two positionals, which makes it the shape most
+    // sensitive to commander 15's `.action()` signature change (`(...positionals, command)` becomes
+    // `(...positionals, options, command)`). That is why this gate lands before the bump, not with
+    // it: if the commander upgrade goes red, the cause is unambiguously commander.
+    it('scenario new honours --version through real argv and scaffolds that exact version', async () => {
+      const tmpPacks = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-spawn-new-'));
+      try {
+        // The starter template's !include points at ../../../../_shared/..., so a bare temp dir
+        // scaffolds a scenario that cannot validate. Mirrors the runNew beforeEach above: fixture
+        // _shared first, then production _shared over the top for the fragments fixtures lack.
+        fs.cpSync(path.join(FIXTURES_PACKS, '_shared'), path.join(tmpPacks, '_shared'), { recursive: true });
+        fs.cpSync(path.resolve(REPO_ROOT, 'packs/_shared'), path.join(tmpPacks, '_shared'), {
+          recursive: true,
+          force: true
+        } as fs.CopySyncOptions);
+
+        const result = await spawnScenarioCli([
+          'new',
+          'demo',
+          'my-sample',
+          '--version',
+          '1.2.3',
+          '--packs-root',
+          tmpPacks
+        ]);
+
+        expect(result.code).toBe(0);
+        // 1.2.3, not commander's program version and not the option's 1.0.0 default.
+        const versionDir = path.join(tmpPacks, 'demo/scenarios/my-sample/1.2.3');
+        expect(fs.existsSync(path.join(versionDir, 'scenario.yaml'))).toBe(true);
+        expect(fs.existsSync(path.join(tmpPacks, 'demo/pack.yaml'))).toBe(true);
+        // The default must NOT also have been created — that would mean --version was ignored and
+        // the option default silently applied.
+        expect(fs.existsSync(path.join(tmpPacks, 'demo/scenarios/my-sample/1.0.0'))).toBe(false);
+        // stdout names the version too, so a future refactor cannot satisfy the tree check alone.
+        expect(result.stdout).toContain('demo/my-sample@1.2.3');
+
+        // And the scaffolded tree is actually valid — the scaffold is worthless if it is not.
+        const validateResult = await spawnScenarioCli([
+          'validate',
+          path.join(versionDir, 'scenario.yaml'),
+          '--packs-root',
+          tmpPacks
+        ]);
+        expect(validateResult.code).toBe(0);
+      } finally {
+        fs.rmSync(tmpPacks, { recursive: true, force: true });
+      }
+    });
+
+    it('scenario --cli-version reports the CLI version without shadowing the new subcommand', async () => {
+      const version = await spawnScenarioCli(['--cli-version']);
+      expect(version.code).toBe(0);
+      expect(version.stdout.trim()).toBe('0.2.0');
+
+      // The rename must be visible in --help, since that is the only place a user discovers it.
+      const help = await spawnScenarioCli(['--help']);
+      expect(help.code).toBe(0);
+      expect(help.stdout).toContain('--cli-version');
+      // And the bare `--version` must no longer be a PROGRAM flag: commander treats an unknown
+      // program-level option as an error, which is precisely what stops it shadowing `new`'s.
+      const shadowed = await spawnScenarioCli(['--version']);
+      expect(shadowed.code).not.toBe(0);
+    });
   });
 });
