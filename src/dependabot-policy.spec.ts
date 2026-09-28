@@ -106,15 +106,53 @@ describe('.github/dependabot.yml ignore policy', () => {
     }
   );
 
-  it('keeps every ignore rule commented, so the next reader learns the constraint', () => {
-    // Each `- dependency-name:` line must be preceded somewhere above by a `#`
-    // comment within its own ignore block. Cheap structural proxy: the file has
-    // at least as many comment lines as ignore rules.
+  it('documents every ignore rule with a comment in its own ignore block', () => {
+    // Walk each `ignore:` block and require a `#` comment to have appeared
+    // within it before any `- dependency-name:` line. A shared comment covering
+    // several rules is fine and intentional — the three langchain entries are
+    // one constraint explained once — so this checks "documented", not
+    // "commented individually". Counting `#` lines file-wide (the earlier
+    // version of this test) would pass an undocumented rule as long as any
+    // other comment existed anywhere.
     const lines = fs.readFileSync(DEPENDABOT_YML, 'utf8').split('\n');
-    const ruleCount = lines.filter((l) => l.includes('- dependency-name:')).length;
-    const commentCount = lines.filter((l) => l.trim().startsWith('#')).length;
+    const undocumented: string[] = [];
+    let inIgnoreBlock = false;
+    let commentSeenInBlock = false;
 
-    expect(ruleCount).toBe(REQUIRED_IGNORES.length);
-    expect(commentCount).toBeGreaterThanOrEqual(ruleCount);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed === 'ignore:') {
+        inIgnoreBlock = true;
+        commentSeenInBlock = false;
+        continue;
+      }
+      // Any new top-level key ends the ignore block.
+      if (inIgnoreBlock && trimmed !== '' && !trimmed.startsWith('#') && !line.startsWith('      ')) {
+        inIgnoreBlock = false;
+      }
+      if (!inIgnoreBlock) continue;
+      if (trimmed.startsWith('#')) commentSeenInBlock = true;
+      if (trimmed.startsWith('- dependency-name:') && !commentSeenInBlock) {
+        undocumented.push(trimmed);
+      }
+    }
+
+    expect(undocumented).toEqual([]);
+  });
+
+  it('has no ignore rule beyond the ones this spec knows about', () => {
+    // Exact equality, deliberately: a new ignore rule is a new permanent
+    // exception to "keep dependencies current", and it should not be possible
+    // to add one without also stating the upstream constraint here. Listing the
+    // actual names means the failure says which rule is unaccounted for rather
+    // than just a number.
+    const declared = (config.updates ?? [])
+      .flatMap((u) => (u.ignore ?? []).map((i) => `${u['package-ecosystem']}:${i['dependency-name']}`))
+      .sort();
+    const known = REQUIRED_IGNORES.map((r) => `${r.ecosystem}:${r.dependency}`).sort();
+
+    // If this fails with an extra entry, add it to REQUIRED_IGNORES with the
+    // upstream constraint that forces it — do not delete this assertion.
+    expect(declared).toEqual(known);
   });
 });
