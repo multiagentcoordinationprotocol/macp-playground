@@ -11,6 +11,8 @@ All endpoints return JSON. Error responses follow the format:
 }
 ```
 
+`metadata` is **omitted entirely** when the error carries none (`src/errors/app-exception.ts:19`) — it is not emitted as `null` or `{}`. `statusCode`, `errorCode` and `message` are always present.
+
 Authentication is optional. When `AUTH_API_KEYS` is configured, pass a valid key via the `x-api-key` header.
 
 ## Health
