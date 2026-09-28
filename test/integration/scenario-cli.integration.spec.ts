@@ -101,7 +101,7 @@ spec:
       ['a boolean', 'false'],
       ['a mapping', '{ nested: value }'],
       ['a sequence', '[a, b]'],
-      ['an explicit null', '~'],
+      ['an explicit null', 'null'],
       ['an empty string', "''"],
       ['a whitespace-only string', "'   '"]
     ])('warns (never throws) when a commitment description is %s', async (_label, yamlValue) => {
@@ -365,7 +365,7 @@ spec:
       ['a boolean', 'false'],
       ['a mapping', '{ nested: value }'],
       ['a sequence', '[a, b]'],
-      ['an explicit null', '~'],
+      ['an explicit null', 'null'],
       ['an empty string', "''"],
       ['a whitespace-only string', "'   '"]
     ])('reports a finding (never throws) when a commitment description is %s', async (_label, yamlValue) => {
