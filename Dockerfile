@@ -43,6 +43,11 @@ RUN echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc && \
     rm -f .npmrc
 
 COPY --from=builder /app/dist dist/
+# tsconfig.build.json pins tsBuildInfoFile INSIDE dist/ deliberately — without that pin,
+# `rootDir: ./src` relocates it to the repo root and `rm -rf dist && npm run build` exits 0
+# having emitted zero files. Keep the pin; just don't ship the 226 KB compiler cache in a
+# runtime image, where nothing ever reads it.
+RUN rm -f dist/*.tsbuildinfo
 COPY packs/ packs/
 COPY agents/ agents/
 COPY policies/ policies/
