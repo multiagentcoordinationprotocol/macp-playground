@@ -2,7 +2,7 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 import { ErrorCode } from './error-codes';
 
 export class AppException extends HttpException {
-  readonly errorCode: ErrorCode;
+  override readonly errorCode: ErrorCode;
   readonly metadata?: Record<string, unknown>;
 
   constructor(
