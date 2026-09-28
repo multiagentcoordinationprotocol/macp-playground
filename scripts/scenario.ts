@@ -3,7 +3,18 @@ import { Command } from 'commander';
 
 async function main(): Promise<void> {
   const program = new Command();
-  program.name('scenario').description('Authoring CLI for MACP scenario packs').version('0.2.0');
+  // `-V, --cli-version` rather than commander's default `-V, --version`. The default long flag
+  // SHADOWS the `new` subcommand's own `--version <semver>` option (declared below), and commander
+  // resolves the collision in favour of the program: `scenario new demo my-sample --version 1.2.3`
+  // printed `0.2.0`, exited 0, and scaffolded nothing. Reproduced on commander 4.1.1 and 15.0.0 —
+  // on 15 it raises CommanderError code=commander.version, still exitCode 0. `docs/scenario-cli.md`
+  // has documented `[--version 1.0.0]` as working since the CLI was written; it never has.
+  //
+  // Renaming the PROGRAM's flag is the fix that keeps the documented surface intact. Rejected:
+  // renaming the subcommand's option to `--scenario-version` (breaks the published surface to work
+  // around an internal collision), and deleting `program.version()` (works, but silently drops the
+  // version flag from `--help`).
+  program.name('scenario').description('Authoring CLI for MACP scenario packs').version('0.2.0', '-V, --cli-version');
 
   program
     .command('validate <path>')
