@@ -123,10 +123,20 @@ function buildSchema(filePath: string, packsRoot: string, visited: Set<string>):
  * The first two are genuine breaks: v4 returned a value and v5 raises, so without handling, a pack
  * author's placeholder file becomes `INVALID_PACK_DATA: invalid YAML in ...`.
  *
- * The third is NOT handled, deliberately. `''` and `null` are both falsy and every consumer treats
- * them identically — and at `scripts/scenario/lint.ts` the empty string is actually the SAFER of the
- * two, because that code dereferences the parsed document directly. An earlier version of this file
- * tried to normalise marker-only input to `null` with a line-scanning helper, and that helper:
+ * The third is NOT handled here, deliberately — but NOT because the two values are interchangeable.
+ * They are not, and assuming they were is a mistake this comment previously made:
+ *
+ *   - `''.foo` is `undefined`, so a consumer that dereferences the document survives;
+ *   - `null.foo` THROWS, so the same consumer dies.
+ *
+ * That difference decides only *how* a consumer fails, and each consumer's failure mode is its own
+ * to choose — so each one guards the document's shape explicitly instead of relying on a falsy
+ * value to do it. `lintPack` (`scripts/scenario/lint.ts`) and `loadPackFile` /`loadScenarioFile`
+ * (`file-registry.loader.ts`) both do; `discoverTemplates` optional-chains, which is equivalent.
+ * Do not add a fourth consumer that dereferences a parsed document unguarded.
+ *
+ * An earlier version of this file tried instead to normalise marker-only input to `null` with a
+ * line-scanning helper, and that helper:
  *
  *   1. returned `null` for input BOTH versions reject — `'%YAML 1.2\n'` (a directive with no
  *      following `---`) and `'---\n---\n'` (two documents) — converting a reportable

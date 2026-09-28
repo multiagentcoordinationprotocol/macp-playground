@@ -116,6 +116,14 @@ function lintPack(
   // `null`/`undefined`, and one thrown TypeError here aborts the whole lint run — every remaining
   // pack goes unchecked, reported as a stack trace instead of a finding. Same reasoning as the
   // commitment-description guard below; this is the document-level version of it.
+  //
+  // SCOPE, stated because this comment would otherwise imply more than it delivers: this guards the
+  // *document* shape only. Element-level shapes are still unguarded — `participants:` or
+  // `commitments:` written as a mapping rather than a sequence still dies with an uncaught
+  // "object is not iterable" at the `for…of` loops below (and at the matching loops in
+  // `validate.ts`). That is pre-existing and behaves identically under js-yaml 4, so it is NOT
+  // drift from the js-yaml 5 upgrade and is deliberately left out of that change; it wants its own
+  // fix (report a finding, do not swallow) rather than being smuggled into a dependency bump.
   if (typeof pack !== 'object' || pack === null || Array.isArray(pack)) {
     findings.push({
       level: 'error',

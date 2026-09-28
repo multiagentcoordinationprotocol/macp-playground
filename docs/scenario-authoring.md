@@ -246,6 +246,24 @@ simply arrives as text:
 
 If a value must be absent, prefer omitting the key entirely over any spelling of null.
 
+## Placeholder and half-written pack files
+
+A `pack.yaml` or `scenario.yaml` that contains no document at all — empty, whitespace only, comments
+only, a bare `---`, or a sequence or scalar where a mapping belongs — is treated as **"not a pack
+document"** rather than as a broken one. The loader logs an error naming the file and the shape it
+found, then skips just that pack (or, for `scenario.yaml`, just that version) and carries on serving
+everything else. Scaffolding a new pack therefore cannot take the catalog down.
+
+That containment is deliberate and is tested, because it is **not** how a *malformed* file behaves. A
+file that does contain a mapping but gets `apiVersion`, `kind` or `metadata.slug` wrong is a real
+error: it raises `INVALID_PACK_DATA` and fails the entire registry load, so every catalog route
+returns HTTP 500 until it is fixed. The same is true of YAML that js-yaml cannot parse at all,
+including two documents in one file (`---` twice) and a `%YAML` directive with no following `---`.
+
+The rule of thumb: **a file you have not written yet costs you that one pack; a file you have written
+wrongly costs you the whole catalog.** If you are scaffolding, leave the file empty or commented out
+rather than half-filled with a wrong `apiVersion`.
+
 ## Sharing fragments across scenarios
 
 Conventionally, fragments live under `packs/_shared/` (the leading underscore tells the loader to skip the directory during pack discovery). The seeded layout:
