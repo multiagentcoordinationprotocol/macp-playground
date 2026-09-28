@@ -1,0 +1,28 @@
+{
+  // Type-checks the WHOLE repo — src/ plus test/ and scripts/, which the build program
+  // (tsconfig.build.json) deliberately excludes. `scripts/` had no static gate of any kind
+  // before this config existed; `test/` was only ever checked incidentally, by ts-jest, which
+  // suppresses several diagnostic classes by default.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // MANDATORY, not stylistic. tsconfig.json sets "rootDir": "./src", which is inherited, and
+    // a program that also includes test/ and scripts/ then fails with 19 x TS6059
+    // ("not under 'rootDir'"). Widening it back to the repo root is what makes this config
+    // compile at all.
+    "rootDir": ".",
+    "noEmit": true,
+    // Both are required. tsconfig.json sets "declaration": true, and declaration emit is part of
+    // what makes rootDir load-bearing, so noEmit alone is not enough.
+    "declaration": false,
+    // tsconfig.json declares only ["node"]; test/**/*.ts needs jest's globals.
+    "types": ["node", "jest"],
+    // Deliberately opts OUT of the inherited "incremental": true. This config is a correctness
+    // gate, and a stale .tsbuildinfo is exactly the thing that could let a real failure through
+    // unnoticed. Full check every run, no build-info artifact to go stale.
+    "incremental": false
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts"],
+  // Narrower than tsconfig.json's, which also excludes "**/*.spec.ts" — checking the specs is
+  // the entire point here.
+  "exclude": ["node_modules", "dist"]
+}

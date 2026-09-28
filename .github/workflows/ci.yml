@@ -30,6 +30,11 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: npm run lint
       - run: npm run format:check
+      # Covers src/ + test/ + scripts/, i.e. wider than the build program. `scripts/` (the
+      # scenario CLI) has no other static gate: it is in neither tsconfig.json's `include` nor
+      # the `build`, and ts-jest only type-checks the parts a spec happens to import — while
+      # suppressing TS6059 and every option-validation diagnostic by default.
+      - run: npm run typecheck
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
         continue-on-error: true
