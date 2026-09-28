@@ -110,6 +110,21 @@ function lintPack(
     return findings;
   }
 
+  // `pack` is an unvalidated `as` cast over whatever the file parsed to, and a YAML file can
+  // legitimately parse to a non-object: `null` (a file containing just `null`), `''` (a file that is
+  // only a `---` marker), a string, a number, a sequence. `pack.metadata` throws a TypeError on
+  // `null`/`undefined`, and one thrown TypeError here aborts the whole lint run — every remaining
+  // pack goes unchecked, reported as a stack trace instead of a finding. Same reasoning as the
+  // commitment-description guard below; this is the document-level version of it.
+  if (typeof pack !== 'object' || pack === null || Array.isArray(pack)) {
+    findings.push({
+      level: 'error',
+      file: packYaml,
+      message: `pack.yaml must contain a YAML mapping, got ${pack === null ? 'null' : Array.isArray(pack) ? 'a sequence' : typeof pack}`
+    });
+    return findings;
+  }
+
   if (!SLUG_RE.test(pack.metadata?.slug ?? '')) {
     findings.push({
       level: 'error',

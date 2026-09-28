@@ -227,30 +227,25 @@ describe('loadYamlWithIncludes', () => {
     });
 
     it('accepts ONLY JSON spellings for null, booleans and numbers — everything else is a string', () => {
-      // THE BIGGEST BEHAVIOUR CHANGE IN THIS UPGRADE, and considerably wider than the upgrade plan
-      // recorded. The plan named 4 constructs; measured against js-yaml 4.3.2 and 5.4.2 with the
-      // same JSON_SCHEMA, FIFTEEN changed. The unifying rule is simple: v5's JSON_SCHEMA is JSON,
-      // and JSON has exactly one spelling for null, for true and for false, and a single number
-      // grammar. Anything outside that grammar is now a plain string.
+      // The rule, which is the only reliable way to hold this: js-yaml 5's JSON_SCHEMA *is* JSON —
+      // one spelling for null, one each for true and false, one number grammar. Anything outside
+      // that grammar is a plain string. Measured against 4.3.0 (the version actually locked before
+      // the bump, per package-lock.json at the fixture commit), 25 of 26 probe values changed.
       //
-      //   nulls    ~ Null NULL and a bare `key:`   ->  '~' 'Null' 'NULL' ''
-      //   booleans True TRUE False FALSE           ->  'True' 'TRUE' 'False' 'FALSE'
-      //   numbers  +5 .5 007 0b101 0o17 0x1F       ->  '+5' '.5' '007' '0b101' '0o17' '0x1F'
-      //            .inf .nan 1_000                ->  '.inf' '.nan' '1_000'
-      //   unchanged: null true false 42 -5 0.5 and (already strings) yes on off no 2024-01-15 12:30
+      // Deliberately NOT presented as a complete list: the non-JSON number forms are open-ended, and
+      // two earlier attempts to enumerate them were both wrong. See DECISIONS.md.
       //
-      // THE DANGEROUS ROW IS `False`. A null degrading to '~' still looks odd on inspection, but
+      // THE DANGEROUS ROW IS `False`. A null degrading to '~' at least looks odd on inspection, but
       // 'False' is a non-empty string and therefore TRUTHY — a governance flag written `False`
-      // silently inverts. Nothing throws in any of these cases; a field simply arrives as a short
-      // string, and while '' still reads as absent to a truthiness check, '~'/'Null'/'False' read as
-      // PRESENT/ENABLED. A pack author writing `description: ~` to mean "none" ships a commitment
-      // whose description is a literal tilde, and scenario:lint passes it.
+      // silently reads as ENABLED. Nothing throws in any of these cases; a field simply arrives as
+      // text, and while '' still reads as absent to a truthiness check, '~'/'Null'/'False' read as
+      // PRESENT. A pack author writing `description: ~` to mean "none" ships a commitment whose
+      // description is a literal tilde, and scenario:lint passes it.
       //
-      // Verified safe for this repo at the time of the upgrade: none of the fifteen occurs as a value
-      // or sequence item in any file under packs/, test/fixtures/packs/, policies/ or schemas/
-      // (grepped for all of them, not just the nulls), every bare `key:` in those trees is a parent
-      // of an indented block rather than an empty value, and packs-on-disk.spec.ts confirms all 13
-      // shipped files parse byte-identically to the fixture generated under v4.
+      // Verified safe for this repo at the time of the upgrade: no affected spelling occurs as a
+      // value or sequence item anywhere under packs/, test/fixtures/packs/, policies/ or schemas/,
+      // and packs-on-disk.spec.ts confirms all 13 shipped files parse byte-identically to the
+      // fixture generated under 4.3.0.
       const file = writeFile(
         'a.yaml',
         [
@@ -336,21 +331,43 @@ describe('loadYamlWithIncludes', () => {
       expect((caught as AppException).message).toContain('a.yaml');
     });
 
-    it('returns null for a document-marker-only file, as js-yaml 4 did', () => {
-      // A file whose only content is `---` (optionally with a %YAML directive, comments or blank
-      // lines) is a document with no content. v4's load() returned null; v5 returns '' — and it does
-      // NOT throw, so the YAMLException branch never fires, while `content.trim()` is non-empty so
-      // the blank-content guard does not fire either. Without an explicit guard this silently became
-      // an empty string: the same class of quiet degradation as the JSON-only rule above.
-      expect(loadYamlWithIncludes(writeFile('a.yaml', '---\n'), tmpRoot)).toBeNull();
-      expect(loadYamlWithIncludes(writeFile('b.yaml', '%YAML 1.2\n---\n'), tmpRoot)).toBeNull();
-      expect(loadYamlWithIncludes(writeFile('c.yaml', '---\n# only a comment\n...\n'), tmpRoot)).toBeNull();
+    it("yields '' (not null) for a marker-only file, and that is deliberately NOT normalised", () => {
+      // js-yaml 4 returned null here; v5 returns '' and does not throw. Left alone on purpose. Both
+      // are falsy and every consumer treats them the same — and at `scripts/scenario/lint.ts` the
+      // empty string is the SAFER of the two, because that code dereferences the parsed document
+      // directly: `null.metadata` throws, `''.metadata` is undefined. An earlier attempt to
+      // normalise this with a line-scanning helper regressed behaviour, returning null for input
+      // js-yaml REJECTS and so converting a reportable finding into a downstream crash. See the
+      // block comment in include-resolver.ts. Asserting the real value is what stops that being
+      // reintroduced as a "fix".
+      expect(loadYamlWithIncludes(writeFile('a.yaml', '---\n'), tmpRoot)).toBe('');
+      expect(loadYamlWithIncludes(writeFile('b.yaml', '--- # placeholder\n'), tmpRoot)).toBe('');
+      expect(loadYamlWithIncludes(writeFile('c.yaml', '  ---\n'), tmpRoot)).toBe('');
     });
 
-    it('does not mistake real content for a document-less file', () => {
-      // The guard keys off EVERY line being blank / a comment / a marker / a directive, so it must
-      // not fire when any line carries content — including content that merely starts with one of
-      // the characters the guard looks for. These three are the ways a naive guard gets it wrong.
+    it('still REPORTS input that js-yaml rejects, rather than silently treating it as empty', () => {
+      // Regression guard for the above. Each of these is invalid to both js-yaml 4 and 5 and must
+      // surface as INVALID_PACK_DATA, so a caller's try/catch can report it — never as a quiet null
+      // the caller then dereferences.
+      const cases: Array<[string, string]> = [
+        ['directive-without-marker.yaml', '%YAML 1.2\n'],
+        ['two-documents.yaml', '---\n---\n'],
+        ['two-documents-commented.yaml', '---\n# a\n---\n# b\n']
+      ];
+      for (const [name, content] of cases) {
+        let caught: unknown;
+        try {
+          loadYamlWithIncludes(writeFile(name, content), tmpRoot);
+        } catch (err) {
+          caught = err;
+        }
+        expect(caught).toBeInstanceOf(AppException);
+        expect((caught as AppException).errorCode).toBe(ErrorCode.INVALID_PACK_DATA);
+        expect((caught as AppException).message).toContain('invalid YAML in');
+      }
+    });
+
+    it('does not confuse content that merely looks like a marker or a comment', () => {
       expect(loadYamlWithIncludes(writeFile('a.yaml', '---\nkey: value\n'), tmpRoot)).toEqual({ key: 'value' });
       expect(loadYamlWithIncludes(writeFile('b.yaml', 'key: |\n  # not a comment, a string\n'), tmpRoot)).toEqual({
         key: '# not a comment, a string\n'

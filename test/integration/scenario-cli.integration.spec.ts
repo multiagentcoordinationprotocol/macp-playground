@@ -147,6 +147,45 @@ spec:
         fs.rmSync(tmp, { recursive: true, force: true });
       }
     });
+
+    // Counterpart of the runLint `~` case: this is the block the `['an explicit null', '~']` row was
+    // moved out of, so the deliberate post-js-yaml-5 outcome is pinned at both entry points.
+    it('emits NO description warning for description: ~ — that is the string "~" under js-yaml 5', async () => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-validate-tilde-'));
+      try {
+        fs.mkdirSync(path.join(tmp, 'tildeprobe/scenarios/probe/1.0.0'), { recursive: true });
+        fs.writeFileSync(
+          path.join(tmp, 'tildeprobe/pack.yaml'),
+          'apiVersion: scenarios.macp.dev/v1\nkind: ScenarioPack\nmetadata: { slug: tildeprobe, name: Tilde }\n'
+        );
+        fs.writeFileSync(
+          path.join(tmp, 'tildeprobe/scenarios/probe/1.0.0/scenario.yaml'),
+          `apiVersion: scenarios.macp.dev/v1
+kind: ScenarioVersion
+metadata: { pack: tildeprobe, scenario: probe, version: 1.0.0, name: Probe }
+spec:
+  inputs: { schema: { type: object } }
+  launch:
+    modeName: macp.mode.decision.v1
+    modeVersion: '1'
+    configurationVersion: c
+    ttlMs: 1000
+    commitments:
+      - id: probe-commitment
+        description: ~
+`
+        );
+        const code = await runValidate({
+          target: path.join(tmp, 'tildeprobe/scenarios/probe/1.0.0/scenario.yaml'),
+          packsRoot: tmp
+        });
+        expect(code).toBe(0);
+        const logLines = logSpy.mock.calls.map((call) => String(call[0]));
+        expect(logLines.some((line) => line.includes('WARN') && line.includes('probe-commitment'))).toBe(false);
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('runDryRun (in-process)', () => {
@@ -433,6 +472,46 @@ spec:
     // break a legitimate `~` description). Asserting it at the CLI layer is what stops the decision
     // being silently reversed: a future coercion in scripts/scenario/lint.ts, or a js-yaml release
     // that restored `~` -> null, would both turn this red.
+    // Document-level counterpart of the commitment-description guards. A pack.yaml can parse to a
+    // non-mapping in several ordinary ways, and `lintPack` dereferences the parsed document directly
+    // — so `null` used to throw a TypeError that aborted the entire run, every remaining pack going
+    // unchecked. The `null` case crashed even before the js-yaml upgrade; the marker-only case is new
+    // to js-yaml 5 (v4 gave null, v5 gives ''); the directive case is rejected by both versions and
+    // must stay a reported load failure rather than being swallowed as "empty".
+    it.each([
+      ['a bare null document', 'null\n', 'must contain a YAML mapping, got null'],
+      ['a marker-only document', '---\n', 'must contain a YAML mapping, got string'],
+      ['a sequence instead of a mapping', '- one\n- two\n', 'must contain a YAML mapping, got a sequence'],
+      ['a directive with no document', '%YAML 1.2\n', 'failed to load'],
+      ['two documents in one file', '---\n---\n', 'failed to load']
+    ])('reports, never crashes, when pack.yaml is %s', async (_label, packYaml, expected) => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-lint-bad-pack-'));
+      try {
+        fs.mkdirSync(path.join(tmp, 'packs/badpack'), { recursive: true });
+        fs.writeFileSync(path.join(tmp, 'packs/badpack/pack.yaml'), packYaml);
+
+        // Resolving at all is half the point — a TypeError here rejects the promise and takes the
+        // whole run with it.
+        const code = await runLint({
+          target: path.join(tmp, 'packs'),
+          packsRoot: path.join(tmp, 'packs')
+        });
+
+        expect(code).toBe(1);
+        const errorLines = errSpy.mock.calls.map((call) => String(call[0]));
+        expect(errorLines.some((line) => line.includes(expected))).toBe(true);
+        // And the run reached its summary rather than unwinding.
+        const logLines = logSpy.mock.calls.map((call) => String(call[0]));
+        expect(logLines.some((line) => line.includes('scenario:lint') && line.includes('1 error(s)'))).toBe(true);
+      } finally {
+        logSpy.mockRestore();
+        errSpy.mockRestore();
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
     it('reports NO finding for description: ~ — under js-yaml 5 that is the string "~", not null', async () => {
       const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
       const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});

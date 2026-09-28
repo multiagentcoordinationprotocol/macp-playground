@@ -109,34 +109,37 @@ function buildSchema(filePath: string, packsRoot: string, visited: Set<string>):
 }
 
 /**
- * True when the file carries no YAML document at all — every line is blank, a comment, a document
- * marker (`---` / `...`) or a directive (`%YAML 1.2`).
+ * Normalises js-yaml 5's "no document here" outcomes back to js-yaml 4's, WITHOUT taking over the
+ * job of deciding what is a valid document. That distinction is the whole point of this function's
+ * shape, and getting it wrong caused a real regression during this upgrade — see below.
  *
- * This exists because js-yaml 4 and 5 disagree on document-less input in TWO different ways, and
- * only one of them is catchable:
+ * The two versions disagree on document-less input in three ways:
  *
- *   input                 v4 load()    v5 load()
- *   ''  /  '   '          undefined    THROWS 'expected a document, but the input is empty'
- *   '# comment only\n'    null         THROWS (same)
- *   '---\n'               null         '' — does NOT throw
+ *   input                      v4 load()    v5 load()                          handled by
+ *   ''  /  '   '               undefined    THROWS 'the input is empty'         the trim() guard
+ *   '# comment only\n'         null         THROWS (same)                       the catch below
+ *   '---\n'  (marker only)     null         ''  -- does NOT throw               nothing; see below
  *
- * The throwing cases are caught below. The `---`-only case is the dangerous one: nothing throws, so
- * a file that used to read as "no content" silently starts reading as an empty STRING. Callers
- * checking `=== null` would take the wrong branch and never know. Normalising here, before parsing,
- * covers all three uniformly and restores v4's contract.
+ * The first two are genuine breaks: v4 returned a value and v5 raises, so without handling, a pack
+ * author's placeholder file becomes `INVALID_PACK_DATA: invalid YAML in ...`.
  *
- * Deliberately conservative: it requires EVERY line to be content-free, so a `---` followed by real
- * YAML, a literal block whose body happens to look like comments, or a quoted `'---'` value are all
- * left alone. Tests cover each of those.
+ * The third is NOT handled, deliberately. `''` and `null` are both falsy and every consumer treats
+ * them identically — and at `scripts/scenario/lint.ts` the empty string is actually the SAFER of the
+ * two, because that code dereferences the parsed document directly. An earlier version of this file
+ * tried to normalise marker-only input to `null` with a line-scanning helper, and that helper:
+ *
+ *   1. returned `null` for input BOTH versions reject — `'%YAML 1.2\n'` (a directive with no
+ *      following `---`) and `'---\n---\n'` (two documents) — converting a reportable
+ *      "failed to load" finding into an unhandled TypeError further downstream, which is exactly
+ *      the class of failure the commitment-description guards were written to prevent; and
+ *   2. could not agree with itself about adjacent spellings: `'--- # placeholder\n'`, a BOM before
+ *      `---`, and an indented `'  ---\n'` all still produced `''`.
+ *
+ * Letting js-yaml decide what parses, and normalising only what it tells us is document-less, has
+ * neither problem. Do not reintroduce a content heuristic here.
  */
-function isDocumentless(content: string): boolean {
-  return content
-    .split('\n')
-    .every((line) => /^\s*$/.test(line) || /^\s*#/.test(line) || /^(---|\.\.\.)\s*$/.test(line) || /^%\S/.test(line));
-}
-
 function parseYamlContent(content: string, filePath: string, packsRoot: string, visited: Set<string>): unknown {
-  if (isDocumentless(content)) return null;
+  if (content.trim().length === 0) return null;
   const schema = buildSchema(filePath, packsRoot, visited);
   try {
     return yaml.load(content, { schema });
@@ -147,15 +150,16 @@ function parseYamlContent(content: string, filePath: string, packsRoot: string, 
     // NOT_RESOLVED instead of throwing would collapse them all into an opaque
     // "cannot resolve a node with !<!nr> explicit tag".)
     if (err instanceof AppException) throw err;
-    // Backstop for the throwing half of the v4/v5 document-less disagreement. isDocumentless()
-    // above should already have returned null for every input that reaches this, so this branch is
-    // belt-and-braces for a shape not anticipated there.
+    // The load-bearing half of the v4/v5 document-less fix (see the block comment above): a
+    // comment-only file returned null under v4 and THROWS under v5, and a pack author leaving a
+    // placeholder of comments must not get `INVALID_PACK_DATA: invalid YAML in ...`.
     //
-    // NOTE THE COUPLING: it discriminates on js-yaml's own prose because v5's YAMLException carries
-    // no error code — `{ name, reason, mark, message }` only, verified against 5.4.2. A future
-    // js-yaml release that rewords this message silently disables this branch; the guard above is
-    // what keeps that from mattering, which is the other reason to normalise before parsing rather
-    // than only here.
+    // NOTE THE COUPLING, because it is unavoidable rather than lazy: this discriminates on
+    // js-yaml's own prose because v5's YAMLException carries no error code — `{ name, reason, mark,
+    // message }` only, verified against 5.4.2. A future js-yaml release that rewords this message
+    // turns comment-only packs back into INVALID_PACK_DATA. The test at
+    // `include-resolver.spec.ts` ('returns null for a comment-only file') is what would catch that,
+    // and it is the reason that test must not be deleted as redundant.
     if (err instanceof yaml.YAMLException && /the input is empty/i.test(err.message)) {
       return null;
     }
