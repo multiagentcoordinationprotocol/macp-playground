@@ -29,7 +29,7 @@
 # 155 packages. langchain (the meta-package) is deliberately absent — no worker
 # imports it; see the note in requirements.txt about the openai hold.
 #
-# `packaging==25.0` is the one entry NOT produced by the generator, and it is the
+# `packaging==26.3` is the one entry NOT produced by the generator, and it is the
 # reason the generation command alone is not sufficient. Debian's python3-pip
 # pulls in python3-packaging, so `packaging` is already satisfied when this file
 # is generated and never appears in pip's `install` report — leaving it the single
@@ -132,7 +132,7 @@ opentelemetry-sdk==1.45.0
 opentelemetry-semantic-conventions==0.66b0
 orjson==3.12.0
 ormsgpack==1.12.2
-packaging==25.0
+packaging==26.3
 overrides==7.7.0
 parso==0.8.7
 pdfminer.six==20260107
