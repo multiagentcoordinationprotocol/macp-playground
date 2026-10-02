@@ -31,11 +31,29 @@ try:
     from langchain_openai import ChatOpenAI
 
     class FraudState(TypedDict):
+        # `domain` plus the lending/claims-specific fields below must stay declared here
+        # even though the graph's own nodes never read them: LangGraph's compiled StateGraph
+        # drops any input key absent from this TypedDict schema, so an undeclared field is
+        # silently nulled before `_score_result` ever sees it — not just left untouched. That
+        # mis-routed every non-fraud domain through fraud scoring whenever langgraph was
+        # actually installed (issue #96); CI never caught it because CI runs with langgraph
+        # absent, where `_score_result` is called directly with the real dict, bypassing
+        # StateGraph's schema filtering entirely.
+        domain: str
         device_trust_score: float
         prior_chargebacks: int
         transaction_amount: float
         account_age_days: int
         is_vip_customer: bool
+        credit_score: Any
+        debt_to_income_ratio: Any
+        employment_years: Any
+        prior_defaults: Any
+        claim_amount: Any
+        policy_age: Any
+        prior_claims: Any
+        is_high_value_policy: Any
+        incident_severity: Any
         recommendation: str
         confidence: float
         reason: str

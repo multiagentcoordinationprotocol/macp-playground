@@ -1,11 +1,12 @@
 /**
  * Dependabot ignore-policy guardrail.
  *
- * Three dependencies in this repo cannot be upgraded freely, each because of an
- * upstream constraint that no change here can lift. Dependabot does not know
+ * Several dependencies in this repo cannot be upgraded freely (typescript, the langchain
+ * family, openai, and the transitive pins crewai/instructor/etc. hold in agents/constraints.txt),
+ * each because of an upstream constraint that no change here can lift. Dependabot does not know
  * that, so `.github/dependabot.yml` carries explicit `ignore` rules; without
  * them Dependabot reopens permanently-red PRs (this is exactly what happened to
- * PRs #80 and #76, which this plan superseded).
+ * PRs #80 and #76, which this plan superseded, and again to #108 and #109).
  *
  * The rules are easy to drop by accident — a merge conflict in a YAML list
  * leaves no compile error and no failing test anywhere else. This spec fails CI
@@ -45,6 +46,8 @@ const REQUIRED_IGNORES: Array<{
   dependency: string;
   updateTypes: string[];
   reason: string;
+  /** A pin in agents/constraints.txt that is not one of requirements.txt's direct dependencies. */
+  transitive?: boolean;
 }> = [
   {
     ecosystem: 'npm',
@@ -77,6 +80,90 @@ const REQUIRED_IGNORES: Array<{
     dependency: 'openai',
     updateTypes: ['version-update:semver-major'],
     reason: 'crewai -> instructor -> jiter<0.15 caps openai at 3.3.0; this is what made PR #76 permanently red.'
+  },
+  {
+    ecosystem: 'pip',
+    dependency: 'portalocker',
+    transitive: true,
+    updateTypes: ['version-update:semver-major', 'version-update:semver-minor', 'version-update:semver-patch'],
+    reason: 'crewai 0.203.2 pins portalocker==2.7.0 exactly, so any other version is unresolvable.'
+  },
+  {
+    ecosystem: 'pip',
+    dependency: 'json-repair',
+    transitive: true,
+    updateTypes: ['version-update:semver-major', 'version-update:semver-minor', 'version-update:semver-patch'],
+    reason: 'crewai 0.203.2 pins json-repair==0.25.2 exactly, so any other version is unresolvable.'
+  },
+  {
+    ecosystem: 'pip',
+    dependency: 'litellm',
+    transitive: true,
+    updateTypes: ['version-update:semver-major', 'version-update:semver-minor', 'version-update:semver-patch'],
+    reason: 'crewai 0.203.2 pins litellm==1.74.9 exactly, so any other version is unresolvable.'
+  },
+  {
+    ecosystem: 'pip',
+    dependency: 'chromadb',
+    transitive: true,
+    updateTypes: ['version-update:semver-major', 'version-update:semver-minor'],
+    reason: 'crewai 0.203.2 requires chromadb~=1.1.0; only a 1.1.x patch bump resolves.'
+  },
+  {
+    ecosystem: 'pip',
+    dependency: 'rich',
+    transitive: true,
+    updateTypes: ['version-update:semver-major'],
+    reason: 'instructor 1.17.0 requires rich<15.0.0.'
+  },
+  {
+    ecosystem: 'pip',
+    dependency: 'jiter',
+    transitive: true,
+    updateTypes: ['version-update:semver-major', 'version-update:semver-minor'],
+    reason: 'instructor 1.17.0 requires jiter<0.15; on 0.x a minor bump is what crosses it.'
+  },
+  {
+    ecosystem: 'pip',
+    dependency: 'huggingface-hub',
+    transitive: true,
+    updateTypes: ['version-update:semver-major'],
+    reason: 'tokenizers requires huggingface-hub<2.0 (and 2.0 is the httpx2 HTTP-stack break).'
+  },
+  {
+    ecosystem: 'pip',
+    dependency: 'multidict',
+    transitive: true,
+    updateTypes: ['version-update:semver-major'],
+    reason: 'aiohttp 3.14.3 requires multidict<7.0.'
+  },
+  {
+    ecosystem: 'pip',
+    dependency: 'posthog',
+    transitive: true,
+    updateTypes: ['version-update:semver-major'],
+    reason: 'chromadb 1.1.1 requires posthog<6.0.0.'
+  },
+  {
+    ecosystem: 'pip',
+    dependency: 'uuid-utils',
+    transitive: true,
+    updateTypes: ['version-update:semver-major'],
+    reason: 'langchain-core 1.6.5 requires uuid-utils<1.0.'
+  },
+  {
+    ecosystem: 'pip',
+    dependency: 'websockets',
+    transitive: true,
+    updateTypes: ['version-update:semver-major'],
+    reason: 'langgraph-sdk 0.4.5 requires websockets<17.'
+  },
+  {
+    ecosystem: 'pip',
+    dependency: 'pydantic-core',
+    transitive: true,
+    updateTypes: ['version-update:semver-major', 'version-update:semver-minor', 'version-update:semver-patch'],
+    reason: 'pydantic pins pydantic-core== exactly; it only moves with pydantic itself.'
   }
 ];
 
@@ -138,6 +225,21 @@ describe('.github/dependabot.yml ignore policy', () => {
     }
 
     expect(undocumented).toEqual([]);
+  });
+
+  it('names every transitive-pin dependency in a comment, so a bare rule cannot hide behind the block header', () => {
+    // The walk above accepts ANY earlier comment in the ignore block, and the langchain note at the top of
+    // the pip block already satisfies it for every rule after — so on its own it cannot notice the
+    // transitive-pin explanation being deleted. Require each such dependency to be named in a `#` line.
+    const commentText = fs
+      .readFileSync(DEPENDABOT_YML, 'utf8')
+      .split('\n')
+      .filter((l) => l.trim().startsWith('#'))
+      .join('\n');
+    const unexplained = REQUIRED_IGNORES.filter((r) => r.transitive && !commentText.includes(r.dependency)).map(
+      (r) => r.dependency
+    );
+    expect(unexplained).toEqual([]);
   });
 
   it('has no ignore rule beyond the ones this spec knows about', () => {

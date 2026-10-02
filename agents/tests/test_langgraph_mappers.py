@@ -2,6 +2,8 @@
 
 import logging
 
+import pytest
+from langgraph_worker import graph as graph_module
 from langgraph_worker.graph import _score_result, build_graph
 from langgraph_worker.mappers import (
     build_prompt,
@@ -281,6 +283,56 @@ class TestBothCallSitesDelegate:
         via_fallback = build_graph().invoke(state)
         assert via_fallback['recommendation'] == direct['recommendation'] == 'APPROVE'
         assert via_fallback['confidence'] == direct['confidence']
+
+
+class TestRealStateGraphPreservesEveryDomain:
+    """Issue #96. LangGraph's compiled StateGraph silently drops any input key that is not
+    declared on its state schema (`FraudState`), nulling it before `_score_result` runs. CI
+    installs no frameworks, so `build_graph()` there is the pure-Python fallback that never
+    filters keys and these invariants hold trivially — they only bite where langgraph is really
+    installed: the built image, run by the `docker` CI job's framework-installed pytest step.
+    Skipped (not passed) everywhere else, deliberately, so a green local run never implies the
+    real graph was exercised."""
+
+    needs_langgraph = pytest.mark.skipif(
+        not graph_module.HAS_LANGGRAPH, reason='langgraph not installed — the real StateGraph is not in play'
+    )
+
+    @needs_langgraph
+    def test_every_key_the_mapper_emits_is_declared_on_the_state_schema(self):
+        emitted = set(map_kickoff_to_state({}).keys())
+        declared = set(graph_module.FraudState.__annotations__)
+        assert emitted <= declared, f'undeclared keys are dropped by StateGraph: {sorted(emitted - declared)}'
+
+    @needs_langgraph
+    @pytest.mark.parametrize(
+        'scenario_ref,context',
+        [
+            (
+                'lending/loan-underwriting@1.0.0',
+                {'creditScore': 720, 'debtToIncomeRatio': 0.28, 'employmentYears': 6, 'priorDefaults': 0},
+            ),
+            (
+                'claims/auto-claim-review@1.0.0',
+                {
+                    'claimAmount': 4200,
+                    'policyAge': 6,
+                    'priorClaims': 0,
+                    'isHighValuePolicy': False,
+                    'incidentSeverity': 'minor',
+                },
+            ),
+        ],
+    )
+    def test_non_fraud_domain_scores_identically_through_the_real_graph(self, scenario_ref, context, monkeypatch):
+        # A real key would route llm_recommendation to a billed, nondeterministic LLM call.
+        monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+        state = map_kickoff_to_state(context, {'scenario_ref': scenario_ref})
+        direct = _score_result(state)
+        via_graph = build_graph().invoke(state)
+        assert via_graph['recommendation'] == direct['recommendation']
+        assert via_graph['confidence'] == direct['confidence']
+        assert via_graph['reason'] == direct['reason']
 
 
 class TestBuildPrompt:

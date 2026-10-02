@@ -109,7 +109,8 @@ export interface ScenarioVersionFile {
       commitments?: CommitmentDefinition[];
       contextTemplate?: Record<string, unknown>;
       contextId?: string;
-      extensions?: Record<string, unknown>;
+      /** Session-start extensions: string values, base64 per RFC-MACP-0001 §10.3 (the SDK decodes base64, falling back to raw UTF-8). Shape enforced by CompilerService. */
+      extensions?: Record<string, string>;
       kickoffTemplate?: KickoffTemplate[];
       metadataTemplate?: Record<string, unknown>;
     };

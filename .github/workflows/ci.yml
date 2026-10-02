@@ -290,6 +290,30 @@ jobs:
           print('CONSTRUCT SMOKE OK', crew_type, wrapped_name)
           PY
 
+      # The `python` job installs only `agents/requirements-dev.txt` (no frameworks), so every
+      # worker takes its `except ImportError` branch and `pytest agents/tests` there only ever
+      # compares the Fallback* scorers with themselves. Issue #96 hid in exactly that gap: the real
+      # LangGraph `StateGraph` silently drops input keys missing from its state schema, which
+      # mis-routed lending/claims through fraud scoring — and nothing in CI ran that path. This
+      # step runs the same suite INSIDE the image, where the frameworks are genuinely installed, so
+      # the `needs_langgraph` tests execute instead of skipping. The checkout's `agents/` is
+      # mounted read-only over the image's copy so the tests (which the image also carries) are the
+      # PR's, not a stale layer's. `OPENAI_API_KEY=` empty keeps every worker on its no-key branch:
+      # no LLM call, nothing billed. `-p no:cacheprovider` because the mount is read-only.
+      - name: Framework-installed pytest (gate — mapper tests with the frameworks genuinely present)
+        run: |
+          docker run --rm \
+            -e OPENAI_API_KEY= \
+            -e CREWAI_TRACING_ENABLED=false \
+            -v "$PWD/agents:/app/agents:ro" \
+            -w /app '${{ steps.image.outputs.ref }}' bash -c '
+              set -euo pipefail
+              pip3 install -q --break-system-packages "pytest>=9.1.1,<10"
+              python3 -m pytest -p no:cacheprovider agents/tests -q -rs | tee /tmp/pytest.out
+              # A skip here would mean the gate silently stopped gating.
+              ! grep -q "SKIPPED.*langgraph not installed" /tmp/pytest.out
+            '
+
       # `MACP_AUTH_SERVICE_URL` is mandatory and non-obvious: `AppConfigService.onModuleInit`
       # calls `validateAuthConfig()` unconditionally, which throws when the URL is empty — the
       # app dies during `onModuleInit` AFTER mapping every route, so the failure looks like a
