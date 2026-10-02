@@ -26,6 +26,35 @@ function inferMessageType(kickoff: KickoffTemplate): string {
   }
 }
 
+/**
+ * `extensions` flows scenario YAML -> bootstrap file -> the spawned agent's SDK `fromBootstrap()`, whose
+ * `encodeExtensions` throws unless it is an object (null/absent are fine) and every value is a string
+ * (macp-sdk-typescript #139, RFC-MACP-0001 §10.3). YAML is not type-checked on load, so reject a bad shape
+ * here, at compile time with the key named, instead of letting it surface as an opaque agent-process crash.
+ * Enforced: container is an object, values are strings. NOT enforced: that a string is valid base64 — the SDK
+ * falls back to the raw UTF-8 bytes for one that is not, so that case is lossy-but-working, not a crash.
+ */
+function assertStringExtensions(extensions: unknown): void {
+  if (extensions === undefined || extensions === null) return;
+  if (typeof extensions !== 'object' || Array.isArray(extensions)) {
+    // `extensions:` with no value parses to '' under JSON_SCHEMA (see CLAUDE.md), so this is the bare-key case too.
+    throw new AppException(
+      ErrorCode.COMPILATION_ERROR,
+      `launch.extensions must be a mapping of string values, got ${Array.isArray(extensions) ? 'array' : JSON.stringify(extensions)}`,
+      HttpStatus.BAD_REQUEST
+    );
+  }
+  for (const [key, value] of Object.entries(extensions)) {
+    if (typeof value !== 'string') {
+      throw new AppException(
+        ErrorCode.COMPILATION_ERROR,
+        `launch.extensions.${key} must be a base64-encoded string (RFC-MACP-0001 §10.3), got ${value === null ? 'null' : typeof value}`,
+        HttpStatus.BAD_REQUEST
+      );
+    }
+  }
+}
+
 @Injectable()
 export class CompilerService {
   private readonly ajv: Ajv;
@@ -81,6 +110,8 @@ export class CompilerService {
 
     const initiatorParticipantId =
       launch.initiatorParticipantId ?? kickoffTemplate?.[0]?.from ?? launch.participants[0]?.id;
+
+    assertStringExtensions(launch.extensions);
 
     const sessionId = randomUUID();
     const participantIds = launch.participants.map((participant) => participant.id);

@@ -362,6 +362,80 @@ describe('CompilerService', () => {
       expect(result.initiator?.kickoff?.payload).toEqual({ goal: 'test' });
     });
 
+    it('threads string (base64) extensions through to initiator.sessionStart', async () => {
+      mockIndex.getScenarioVersion.mockResolvedValue({
+        ...mockScenario,
+        spec: { ...mockScenario.spec, launch: { ...mockScenario.spec.launch, extensions: { 'x.trace': 'aGVsbG8=' } } }
+      });
+
+      const result = await service.compile({ scenarioRef: 'fraud/test@1.0.0', inputs: { amount: 100, isVip: true } });
+
+      expect(result.initiator?.sessionStart.extensions).toEqual({ 'x.trace': 'aGVsbG8=' });
+    });
+
+    it.each([
+      ['a number', 42, 'number'],
+      ['an object', { a: 1 }, 'object'],
+      ['null', null, 'null']
+    ])(
+      'rejects a non-string extensions value (%s) with COMPILATION_ERROR naming the key',
+      async (_label, value, got) => {
+        mockIndex.getScenarioVersion.mockResolvedValue({
+          ...mockScenario,
+          spec: {
+            ...mockScenario.spec,
+            launch: { ...mockScenario.spec.launch, extensions: { 'x.bad': value } as unknown as Record<string, string> }
+          }
+        });
+
+        const err = await service
+          .compile({ scenarioRef: 'fraud/test@1.0.0', inputs: { amount: 100, isVip: true } })
+          .catch((e: unknown) => e);
+
+        expect(err).toBeInstanceOf(AppException);
+        expect((err as AppException).errorCode).toBe(ErrorCode.COMPILATION_ERROR);
+        expect((err as AppException).message).toContain('launch.extensions.x.bad');
+        expect((err as AppException).message).toContain(got);
+      }
+    );
+
+    it.each([
+      ["a bare `extensions:` key (parses to '')", '', 'got ""'],
+      ['a string', 'aGVsbG8=', 'got "aGVsbG8="'],
+      ['an array', ['aGVsbG8='], 'got array']
+    ])('rejects a non-mapping extensions container (%s)', async (_label, value, got) => {
+      mockIndex.getScenarioVersion.mockResolvedValue({
+        ...mockScenario,
+        spec: {
+          ...mockScenario.spec,
+          launch: { ...mockScenario.spec.launch, extensions: value as unknown as Record<string, string> }
+        }
+      });
+
+      const err = await service
+        .compile({ scenarioRef: 'fraud/test@1.0.0', inputs: { amount: 100, isVip: true } })
+        .catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(AppException);
+      expect((err as AppException).errorCode).toBe(ErrorCode.COMPILATION_ERROR);
+      expect((err as AppException).message).toContain('launch.extensions must be a mapping');
+      expect((err as AppException).message).toContain(got);
+    });
+
+    it('treats extensions: null as absent (the SDK accepts null) rather than a 500', async () => {
+      mockIndex.getScenarioVersion.mockResolvedValue({
+        ...mockScenario,
+        spec: {
+          ...mockScenario.spec,
+          launch: { ...mockScenario.spec.launch, extensions: null as unknown as Record<string, string> }
+        }
+      });
+
+      await expect(
+        service.compile({ scenarioRef: 'fraud/test@1.0.0', inputs: { amount: 100, isVip: true } })
+      ).resolves.toBeDefined();
+    });
+
     it('omits initiator.kickoff when the scenario has no kickoff template', async () => {
       const noKickoffScenario: ScenarioVersionFile = {
         ...mockScenario,
