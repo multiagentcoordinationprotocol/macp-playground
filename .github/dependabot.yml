@@ -10,9 +10,9 @@ updates:
         patterns:
           - '@nestjs/*'
       minor-and-patch:
-        update-types: ["minor", "patch"]
+        update-types: ['minor', 'patch']
       major-updates:
-        update-types: ["major"]
+        update-types: ['major']
     ignore:
       # typescript is capped at < 6.1.0 by @typescript-eslint's peer range
       # (">=4.8.4 <6.1.0"), and no v9 of that plugin exists. The pin is
@@ -21,9 +21,8 @@ updates:
       # Dependabot would still propose, and it would violate the peer. (TS 7
       # exists but is the native-port rewrite; the ecosystem does not accept it
       # yet, so the major ignore stays too.)
-      - dependency-name: "typescript"
-        update-types:
-          ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: 'typescript'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
 
   - package-ecosystem: pip
     directory: /agents
@@ -32,9 +31,9 @@ updates:
     open-pull-requests-limit: 5
     groups:
       minor-and-patch:
-        update-types: ["minor", "patch"]
+        update-types: ['minor', 'patch']
       major-updates:
-        update-types: ["major"]
+        update-types: ['major']
     ignore:
       # The LangChain family is now ON 1.x, so these guard 1.x -> 2.x. Bump the
       # three together or not at all: the compatible window is narrow (langgraph
@@ -43,12 +42,12 @@ updates:
       # The `langchain` meta-package itself is no longer a dependency — it was
       # dropped rather than upgraded, since no worker imports it — so it needs
       # no entry here.
-      - dependency-name: "langchain-core"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "langchain-openai"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "langgraph"
-        update-types: ["version-update:semver-major"]
+      - dependency-name: 'langchain-core'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'langchain-openai'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'langgraph'
+        update-types: ['version-update:semver-major']
       # openai is capped at 3.3.0 by a chain none of our code controls:
       # openai>=3.3.1 requires jiter>=0.16.0; every instructor release up to
       # 1.17.0 requires jiter<0.15; every crewai release requires
@@ -58,8 +57,55 @@ updates:
       # taking 3.3.0, because 3.3.0 would freeze crewai at 0.203.2 forever
       # (crewai>=1.10.0 declares openai<3) and no worker imports openai
       # directly. Revisit when instructor relaxes its jiter ceiling.
-      - dependency-name: "openai"
-        update-types: ["version-update:semver-major"]
+      - dependency-name: 'openai'
+        update-types: ['version-update:semver-major']
+
+      # ---- Transitive pins in agents/constraints.txt ---------------------------------------
+      # constraints.txt is the full transitive closure (see CLAUDE.md), so Dependabot proposes
+      # each transitive pin on its own — and a lone transitive bump is unresolvable whenever
+      # some other installed package caps it. Every rule below is a bump Dependabot actually
+      # proposed (PRs #108 / #109, red on the `python` job's pip resolution gate) that
+      # `pip install --dry-run -r agents/requirements.txt -c <constraints>` rejected when
+      # applied alone to the current constraints. The capping package is named per rule.
+      # Revisit each when its capper relaxes; the capper moves only with a coordinated
+      # regeneration of constraints.txt (header of that file), never a single-pin PR.
+      #   crewai 0.203.2 (frozen — see the openai note above) pins these exactly or tightly:
+      #     portalocker==2.7.0, json-repair==0.25.2, litellm==1.74.9, chromadb~=1.1.0
+      #     (so only a chromadb patch bump can resolve — hence major+minor are ignored there)
+      #   instructor 1.17.0: jiter<0.15 (the same ceiling as the openai note), rich<15
+      #   other cappers: tokenizers -> huggingface-hub<2, aiohttp -> multidict<7,
+      #     chromadb -> posthog<6, langchain-core 1.6.5 -> uuid-utils<1.0,
+      #     langgraph-sdk -> websockets<17, pydantic -> pydantic-core== (exact co-pin)
+      #   pydantic-core is co-pinned EXACTLY to pydantic, so it can never move alone — and the
+      #   same is true of pydantic: a lone `pydantic` PR will be red for the mirror-image reason.
+      #   Those two move only via a coordinated regeneration of constraints.txt, never a pin PR.
+      #   (Structural alternative, not adopted here because it cannot be tested offline: an
+      #   `allow:` list of only the direct pins in requirements.txt would stop Dependabot
+      #   proposing transitive pins at all and make this whole block unnecessary.)
+      - dependency-name: 'portalocker'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor', 'version-update:semver-patch']
+      - dependency-name: 'json-repair'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor', 'version-update:semver-patch']
+      - dependency-name: 'litellm'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor', 'version-update:semver-patch']
+      - dependency-name: 'chromadb'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      - dependency-name: 'rich'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'jiter'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      - dependency-name: 'huggingface-hub'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'multidict'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'posthog'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'uuid-utils'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'websockets'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'pydantic-core'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor', 'version-update:semver-patch']
 
   - package-ecosystem: github-actions
     directory: /
@@ -77,4 +123,4 @@ updates:
     open-pull-requests-limit: 5
     groups:
       docker:
-        patterns: ["*"]
+        patterns: ['*']
