@@ -1,6 +1,6 @@
 langgraph==1.2.12
 langchain-openai==1.6.6
-langchain-core==1.6.5
+langchain-core==1.6.6
 crewai==0.203.2
 # openai is held at the highest 2.x deliberately. openai>=3.3.1 requires
 # jiter>=0.16.0, every instructor release up to 1.17.0 requires jiter<0.15, and
@@ -13,4 +13,4 @@ crewai==0.203.2
 openai==2.54.0
 # Direct-agent-auth: agents open their own gRPC channel to the MACP runtime
 # via macp_sdk (RFC-MACP-0004 §4).
-macp-sdk-python>=0.9.1,<0.10
+macp-sdk-python>=0.10.2,<0.11
