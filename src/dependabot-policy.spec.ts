@@ -164,6 +164,13 @@ const REQUIRED_IGNORES: Array<{
     transitive: true,
     updateTypes: ['version-update:semver-major', 'version-update:semver-minor', 'version-update:semver-patch'],
     reason: 'pydantic pins pydantic-core== exactly; it only moves with pydantic itself.'
+  },
+  {
+    ecosystem: 'pip',
+    dependency: 'packaging',
+    transitive: true,
+    updateTypes: ['version-update:semver-major', 'version-update:semver-minor', 'version-update:semver-patch'],
+    reason: 'Debian apt python3-pip owns packaging in the image; pip cannot uninstall it (PR #112 docker failure).'
   }
 ];
 
