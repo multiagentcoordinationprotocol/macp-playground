@@ -108,7 +108,7 @@ langgraph-sdk==0.4.5
 langsmith==0.14.1
 litellm==1.74.9
 macp-proto==0.1.10
-macp-sdk-python==0.12.1
+macp-sdk-python==0.14.1
 markdown-it-py==4.2.0
 MarkupSafe==3.0.3
 matplotlib-inline==0.2.2
