@@ -211,6 +211,39 @@ describe('ProcessExampleAgentHostProvider', () => {
       expect(result.participantMetadata?.launchMode).toBe('adapter');
     });
 
+    describe('interpreter selection', () => {
+      async function launchedCommand(manifestHost?: { python?: string }): Promise<string> {
+        (fs.existsSync as jest.Mock).mockReturnValue(true);
+        jest.spyOn(supervisor, 'writeBootstrapFile').mockReturnValue('/tmp/bootstrap.json');
+        const launch = jest.spyOn(supervisor, 'launch').mockReturnValue({
+          handle: { participantId: 'fraud-agent', runId: 'run-1', pid: 12345, framework: 'langgraph' },
+          child: createMockChild(),
+          manifest: buildDefinition().manifest!,
+          launchedAt: '2026-01-01T00:00:00Z',
+          command: 'unused',
+          args: [],
+          bootstrapFilePath: '/tmp/bootstrap.json',
+          healthStatus: 'starting'
+        });
+        const base = buildDefinition();
+        const definition = manifestHost
+          ? buildDefinition({ manifest: { ...base.manifest!, host: manifestHost } })
+          : base;
+        await provider.attach(definition, buildBinding(), buildContext());
+        return (launch.mock.calls[0][0] as { command: string }).command;
+      }
+
+      it('uses EXAMPLE_AGENT_PYTHON_PATH (config.exampleAgentPythonPath) when the manifest names no interpreter', async () => {
+        (config as unknown as { exampleAgentPythonPath: string }).exampleAgentPythonPath = '/opt/venv/bin/python';
+        expect(await launchedCommand()).toBe('/opt/venv/bin/python');
+      });
+
+      it('lets an interpreter named in the manifest win over the configured one', async () => {
+        (config as unknown as { exampleAgentPythonPath: string }).exampleAgentPythonPath = '/opt/venv/bin/python';
+        expect(await launchedCommand({ python: '/custom/python' })).toBe('/custom/python');
+      });
+    });
+
     // PG-1 regression: spawn() returning is not proof the agent actually
     // attached — ENOENT/EACCES and immediate crashes surface asynchronously.
     // Without confirmSpawn() gating the result, this case was reported as

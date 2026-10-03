@@ -8,7 +8,6 @@
     "value": "agents/langchain_worker/main.py"
   },
   "host": {
-    "python": "python3",
     "cwd": ".",
     "env": {
       "PYTHONUNBUFFERED": "1"

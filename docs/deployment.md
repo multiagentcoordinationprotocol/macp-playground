@@ -185,8 +185,8 @@ fullstack compose ships a commented-out variant of this setup.
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `AUTO_BOOTSTRAP_EXAMPLE_AGENTS` | No | `true` | Auto-resolve agent bindings on `/examples/run`. |
-| `EXAMPLE_AGENT_PYTHON_PATH` | No | `python3` | Python interpreter for Python workers. |
-| `EXAMPLE_AGENT_NODE_PATH` | No | _(process.execPath)_ | Node interpreter for Node workers. |
+| `EXAMPLE_AGENT_PYTHON_PATH` | No | `python3` | Python interpreter for Python workers. A manifest's own `host.python` overrides it; the shipped manifests set none. |
+| `EXAMPLE_AGENT_NODE_PATH` | No | _(process.execPath)_ | Node interpreter for Node workers. A manifest's own `host.node` overrides it. |
 | `MACP_CANCEL_CALLBACK_HOST` | No | `127.0.0.1` | Host each agent binds for the cancel-callback HTTP server. Empty disables. |
 | `MACP_CANCEL_CALLBACK_PORT_BASE` | No | `0` | Port base for deterministic per-agent ports; `0` = ephemeral. |
 | `MACP_CANCEL_CALLBACK_PATH` | No | `/agent/cancel` | HTTP path for the cancel-callback server. |

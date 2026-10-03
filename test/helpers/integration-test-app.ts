@@ -114,7 +114,9 @@ export async function createIntegrationTestApp(
       logLevel: 'warn',
       autoBootstrapExampleAgents: overrides?.autoBootstrapExampleAgents ?? true,
       registerPoliciesOnLaunch: true,
-      exampleAgentPythonPath: 'python3',
+      // Real-catalog runs (docker/remote) spawn the Python workers on THIS host, so they need an
+      // interpreter with macp_sdk installed — point EXAMPLE_AGENT_PYTHON_PATH at a venv's python.
+      exampleAgentPythonPath: process.env.EXAMPLE_AGENT_PYTHON_PATH ?? 'python3',
       exampleAgentNodePath: process.execPath,
       authApiKeys: overrides?.authApiKeys ?? [],
       runtimeAddress:
