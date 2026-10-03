@@ -79,6 +79,8 @@ updates:
       #   pydantic-core is co-pinned EXACTLY to pydantic, so it can never move alone — and the
       #   same is true of pydantic: a lone `pydantic` PR will be red for the mirror-image reason.
       #   Those two move only via a coordinated regeneration of constraints.txt, never a pin PR.
+      #   packaging is owned by Debian's apt python3-pip in the image, so pip cannot uninstall it
+      #   ("Cannot uninstall packaging 25.0", PR #112, docker job) even though a venv resolves it.
       #   (Structural alternative, not adopted here because it cannot be tested offline: an
       #   `allow:` list of only the direct pins in requirements.txt would stop Dependabot
       #   proposing transitive pins at all and make this whole block unnecessary.)
@@ -105,6 +107,8 @@ updates:
       - dependency-name: 'websockets'
         update-types: ['version-update:semver-major']
       - dependency-name: 'pydantic-core'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor', 'version-update:semver-patch']
+      - dependency-name: 'packaging'
         update-types: ['version-update:semver-major', 'version-update:semver-minor', 'version-update:semver-patch']
 
   - package-ecosystem: github-actions
