@@ -4,6 +4,7 @@ import { loadYamlWithIncludes } from '../../src/registry/include-resolver';
 import { ScenarioVersionFile, PackFile, ScenarioTemplateFile } from '../../src/contracts/registry';
 import { ExampleAgentCatalogService } from '../../src/example-agents/example-agent-catalog.service';
 import { PolicyDefinition } from '../../src/contracts/policy';
+import { describeExtensionsProblem } from '../../src/compiler/extensions';
 import { PolicyRulesValidator } from '../../src/policy/policy-rules-validator';
 
 export interface LintOptions {
@@ -171,6 +172,13 @@ function lintPack(
       }
     }
 
+    // launch.extensions shape (RFC-MACP-0001 §10.3). Pack YAML is not type-checked on load, so
+    // without this a bad value only surfaces when the compiler runs at dry-run or launch time.
+    const extensionsProblem = describeExtensionsProblem(scenario?.spec?.launch?.extensions);
+    if (extensionsProblem) {
+      findings.push({ level: 'error', file: scenarioYaml, message: extensionsProblem });
+    }
+
     // policyVersion existence
     const policyVersion = scenario?.spec?.launch?.policyVersion;
     if (policyVersion && policyVersion !== 'policy.default' && !knownPolicies.has(policyVersion)) {
@@ -221,6 +229,10 @@ function lintPack(
         const tp = path.join(templatesDir, f);
         try {
           const tmpl = loadYamlWithIncludes(tp, packsRoot) as ScenarioTemplateFile;
+          const templateExtensionsProblem = describeExtensionsProblem(tmpl?.spec?.overrides?.launch?.extensions);
+          if (templateExtensionsProblem) {
+            findings.push({ level: 'error', file: tp, message: `overrides: ${templateExtensionsProblem}` });
+          }
           const overrideCommit = tmpl?.spec?.overrides?.launch?.commitments;
           if (
             Array.isArray(overrideCommit) &&

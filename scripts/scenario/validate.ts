@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import { describeExtensionsProblem } from '../../src/compiler/extensions';
 import * as path from 'node:path';
 import { loadYamlWithIncludes } from '../../src/registry/include-resolver';
 import { createScenarioAjv } from '../../src/compiler/ajv-factory';
@@ -148,6 +149,10 @@ export async function runValidate(opts: ValidateOptions): Promise<number> {
             );
           }
         }
+        const templateExtensionsProblem = describeExtensionsProblem(tmpl?.spec?.overrides?.launch?.extensions);
+        if (templateExtensionsProblem) {
+          report.errors.push(`templates/${file} overrides: ${templateExtensionsProblem}`);
+        }
         // Warn on partial commitments override
         const overrideCommitments = tmpl?.spec?.overrides?.launch?.commitments;
         if (Array.isArray(overrideCommitments)) {
@@ -180,6 +185,12 @@ export async function runValidate(opts: ValidateOptions): Promise<number> {
         report.errors.push(`placeholder {{ ${ph} }} is not satisfied by schema defaults or any fixture`);
       }
     }
+  }
+
+  // launch.extensions shape — the compiler enforces it too, but only at dry-run/launch time.
+  const extensionsProblem = describeExtensionsProblem(scenario?.spec?.launch?.extensions);
+  if (extensionsProblem) {
+    report.errors.push(extensionsProblem);
   }
 
   // agentRef integrity

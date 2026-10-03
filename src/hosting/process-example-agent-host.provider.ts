@@ -146,9 +146,20 @@ export class ProcessExampleAgentHostProvider implements ExampleAgentHostProvider
 
     const bootstrap = await this.buildBootstrapPayload(definition, binding, context, manifest);
     const bootstrapFilePath = this.supervisor.writeBootstrapFile(bootstrap);
-    const prepared = adapter.prepareLaunch({ manifest, bootstrap });
+    // EXAMPLE_AGENT_PYTHON_PATH / EXAMPLE_AGENT_NODE_PATH are the deployment-wide interpreters. The adapters
+    // only read `manifest.host`, so without this merge those env vars were parsed and then ignored. A manifest
+    // that names its own interpreter still wins.
+    const launchManifest: AgentManifest = {
+      ...manifest,
+      host: {
+        ...manifest.host,
+        python: manifest.host?.python ?? this.config.exampleAgentPythonPath,
+        node: manifest.host?.node ?? this.config.exampleAgentNodePath
+      }
+    };
+    const prepared = adapter.prepareLaunch({ manifest: launchManifest, bootstrap });
 
-    const record = this.supervisor.launch(prepared, manifest, bootstrap, bootstrapFilePath);
+    const record = this.supervisor.launch(prepared, launchManifest, bootstrap, bootstrapFilePath);
 
     // `spawn()` returning is not proof the agent is actually running: ENOENT,
     // permission errors, and immediate crashes (missing venv, import error)

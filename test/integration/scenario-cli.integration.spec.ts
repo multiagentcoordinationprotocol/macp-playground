@@ -556,6 +556,101 @@ spec:
     });
   });
 
+  describe('launch.extensions shape (validate + lint)', () => {
+    let logSpy: jest.SpyInstance;
+    let errSpy: jest.SpyInstance;
+    let tmp: string;
+
+    beforeEach(() => {
+      logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-extensions-'));
+    });
+
+    afterEach(() => {
+      logSpy.mockRestore();
+      errSpy.mockRestore();
+      fs.rmSync(tmp, { recursive: true, force: true });
+    });
+
+    /** Writes a one-scenario pack; `extensionsYaml` is spliced under `launch:`, `templateYaml` is an optional template. */
+    function writePack(extensionsYaml: string, templateYaml?: string): { scenario: string; packs: string } {
+      const versionDir = path.join(tmp, 'packs/extprobe/scenarios/probe/1.0.0');
+      fs.mkdirSync(path.join(versionDir, 'templates'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmp, 'packs/extprobe/pack.yaml'),
+        'apiVersion: scenarios.macp.dev/v1\nkind: ScenarioPack\nmetadata: { slug: extprobe, name: Ext Probe }\n'
+      );
+      fs.writeFileSync(
+        path.join(versionDir, 'scenario.yaml'),
+        `apiVersion: scenarios.macp.dev/v1
+kind: ScenarioVersion
+metadata: { pack: extprobe, scenario: probe, version: 1.0.0, name: Probe }
+spec:
+  inputs: { schema: { type: object } }
+  launch:
+    modeName: macp.mode.decision.v1
+    modeVersion: '1'
+    configurationVersion: c
+    ttlMs: 1000
+${extensionsYaml}`
+      );
+      if (templateYaml) fs.writeFileSync(path.join(versionDir, 'templates/default.yaml'), templateYaml);
+      return { scenario: path.join(versionDir, 'scenario.yaml'), packs: path.join(tmp, 'packs') };
+    }
+
+    const reported = (): string =>
+      [...logSpy.mock.calls, ...errSpy.mock.calls].map((call) => String(call[0])).join('\n');
+
+    it('accepts a mapping of string values in both commands', async () => {
+      const { scenario, packs } = writePack('    extensions:\n      x-trace: dHJhY2U=\n');
+      expect(await runValidate({ target: scenario, packsRoot: packs })).toBe(0);
+      expect(await runLint({ target: packs, packsRoot: packs })).toBe(0);
+    });
+
+    it.each([
+      [
+        'a numeric value',
+        '    extensions:\n      x-count: 5\n',
+        'launch.extensions.x-count must be a base64-encoded string'
+      ],
+      [
+        'a bare key (parses to an empty string)',
+        '    extensions:\n',
+        'launch.extensions must be a mapping of string values'
+      ]
+    ])('rejects %s in both commands', async (_label, yaml, expected) => {
+      const { scenario, packs } = writePack(yaml);
+      expect(await runValidate({ target: scenario, packsRoot: packs })).toBe(1);
+      expect(reported()).toContain(expected);
+      logSpy.mockClear();
+      errSpy.mockClear();
+      expect(await runLint({ target: packs, packsRoot: packs })).toBe(1);
+      expect(reported()).toContain(expected);
+    });
+
+    it('rejects a non-string value supplied by a template override, naming the template', async () => {
+      const { scenario, packs } = writePack(
+        '',
+        `apiVersion: scenarios.macp.dev/v1
+kind: ScenarioTemplate
+metadata: { pack: extprobe, scenario: probe, version: 1.0.0, template: default, name: Default }
+spec:
+  overrides:
+    launch:
+      extensions:
+        x-count: 5
+`
+      );
+      expect(await runValidate({ target: scenario, packsRoot: packs })).toBe(1);
+      expect(reported()).toContain('templates/default.yaml overrides: launch.extensions.x-count');
+      logSpy.mockClear();
+      errSpy.mockClear();
+      expect(await runLint({ target: packs, packsRoot: packs })).toBe(1);
+      expect(reported()).toContain('overrides: launch.extensions.x-count');
+    });
+  });
+
   describe('end-to-end via spawned process', () => {
     it('scenario validate exits 0 on the fraud fixture and prints OK', async () => {
       const result = await spawnScenarioCli([
