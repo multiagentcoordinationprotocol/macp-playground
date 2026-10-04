@@ -377,8 +377,7 @@ control-plane failure never turns a successful run into an error response.
   `failedParticipants`. Agents in `mock` / `deferred` mode report `status: "bootstrapped"` with
   `processAttached: false` by design and never trigger it.
 - `INVALID_CONFIG` — no host adapter or manifest for an agent's framework. (A missing
-  `MACP_AUTH_SERVICE_URL` also raises `INVALID_CONFIG`, but at startup, so the service
-  never serves a request — see [`deployment.md`](deployment.md#environment-variables).)
+  `MACP_AUTH_SERVICE_URL` also raises it, but at startup — see [`deployment.md`](deployment.md).)
 
 ## Error codes
 

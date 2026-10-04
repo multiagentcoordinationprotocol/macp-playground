@@ -1,10 +1,24 @@
 services:
   macp-playground:
-    build: .
+    build:
+      context: .
+      args:
+        # @multiagentcoordinationprotocol/proto installs from GitHub Packages.
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     ports:
       - '3000:3000'
     environment:
       NODE_ENV: production
       PACKS_DIR: /app/packs
+      # Required to boot (never contacted until an agent spawns). Defaults to an
+      # auth-service on the host; for the whole stack use docker-compose.fullstack.yml.
+      MACP_AUTH_SERVICE_URL: ${MACP_AUTH_SERVICE_URL:-http://host.docker.internal:3200}
+      MACP_RUNTIME_ADDRESS: ${MACP_RUNTIME_ADDRESS:-}
+      # Defaults match the app (TLS on). For a plaintext local runtime set both:
+      # MACP_RUNTIME_TLS=false MACP_RUNTIME_ALLOW_INSECURE=true
+      MACP_RUNTIME_TLS: ${MACP_RUNTIME_TLS:-true}
+      MACP_RUNTIME_ALLOW_INSECURE: ${MACP_RUNTIME_ALLOW_INSECURE:-false}
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     volumes:
       - ./packs:/app/packs:ro

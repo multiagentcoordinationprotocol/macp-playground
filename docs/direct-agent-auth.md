@@ -102,11 +102,9 @@ gRPC channel — the control-plane only observes the session (read-only
 Every agent spawn mints a short-lived RS256 JWT against the standalone
 auth-service (`POST /tokens`; wire format in
 [`macp-auth-service/docs/API.md` § `POST /tokens`](https://github.com/multiagentcoordinationprotocol/macp-auth-service/blob/main/docs/API.md#post-tokens)).
-There is no static-token fallback — the service requires
-`MACP_AUTH_SERVICE_URL` to be set at boot and throws `INVALID_CONFIG` otherwise
-(see `AppConfigService.validateAuthConfig()`). The URL is not contacted at
-boot; minting happens on the spawn path, so only `/examples/run` requests that
-bootstrap agents depend on the auth-service being reachable.
+There is no static-token fallback. `MACP_AUTH_SERVICE_URL` must be set to boot
+([`deployment.md`](deployment.md)); minting happens on the spawn path, so only
+`/examples/run` requests that bootstrap agents depend on the auth-service being reachable.
 
 The runtime's accepted JWT algorithms and resolver configuration are
 runtime-owned — see

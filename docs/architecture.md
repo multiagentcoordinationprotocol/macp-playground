@@ -73,7 +73,7 @@ set; see [`direct-agent-auth.md` § CP-1 run registration](direct-agent-auth.md#
 
 External dependencies (none is contacted at boot except as noted):
 
-- **auth-service** — `MACP_AUTH_SERVICE_URL` must be *set* or startup fails with `INVALID_CONFIG`, but it is not contacted at boot. It is contacted when an agent is spawned (every uncached spawn mints a JWT, so `/examples/run` with bootstrapping returns `502 AUTH_MINT_FAILED` while it is down) and by the policy registrar below. See [`direct-agent-auth.md` § AUTH-2](direct-agent-auth.md#auth-2--on-demand-jwt-minting).
+- **auth-service** — The URL must be set to boot ([`deployment.md`](deployment.md)) but is contacted only when an agent is spawned (every uncached spawn mints a JWT, so `/examples/run` with bootstrapping returns `502 AUTH_MINT_FAILED` while it is down) and by the policy registrar below. See [`direct-agent-auth.md` § AUTH-2](direct-agent-auth.md#auth-2--on-demand-jwt-minting).
 - **MACP runtime** — not needed to boot or to serve the catalog/compile routes. `PolicyRegistrarService.onApplicationBootstrap()` registers policies with it when `MACP_RUNTIME_ADDRESS` is set (and skips with a warning when it isn't); a failure there is logged, not fatal, but later runs then fail `UNKNOWN_POLICY_VERSION`. Spawned agents connect to it directly. See [`policy-authoring.md` § How Policies Are Registered](policy-authoring.md#how-policies-are-registered).
 
 Env vars for all of the above: [`deployment.md` § Environment Variables](deployment.md#environment-variables).

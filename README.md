@@ -13,7 +13,7 @@ npm install
 MACP_AUTH_SERVICE_URL=http://localhost:3200 npm run start:dev
 ```
 
-`MACP_AUTH_SERVICE_URL` is required to boot — without it startup fails with `INVALID_CONFIG` (after the routes are logged, so it can look like a hang). It is not contacted at boot, so the catalog and compile routes below work with any value. The service does not read `.env` on its own; export variables or use your own loader.
+`MACP_AUTH_SERVICE_URL` must be set to boot (any value works for the catalog and compile routes) — see [docs/deployment.md](docs/deployment.md). The service does not read `.env` on its own; export variables or use your own loader.
 
 The server starts on `http://localhost:3000`. Swagger docs are available at `/docs` in development mode.
 
@@ -204,9 +204,7 @@ OPENAI_API_KEY=sk-... docker compose -f docker-compose.fullstack.yml up
 ```
 
 
-> `docker-compose.dev.yml` does not pass `NODE_AUTH_TOKEN`, and `@multiagentcoordinationprotocol/proto` is installed from GitHub Packages. If the in-container `npm install` fails with a 401, supply the token as for a local install (see Quick Start).
-
-The plain `docker-compose.yml` sets no `MACP_AUTH_SERVICE_URL`, so `docker compose up` on its own will not boot — supply it (for example with an override file or `-e`). See [docs/deployment.md § Local Testing](docs/deployment.md#local-testing).
+`docker-compose.yml` and `docker-compose.dev.yml` build the image from the `Dockerfile`, which installs `@multiagentcoordinationprotocol/proto` from GitHub Packages: export `NODE_AUTH_TOKEN` (a GitHub token with `read:packages`) before `docker compose ... up --build`. Details and the plain `docker-compose.yml` defaults: [docs/deployment.md § Local Testing](docs/deployment.md#local-testing).
 
 ## License
 
