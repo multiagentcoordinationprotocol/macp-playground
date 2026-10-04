@@ -9,7 +9,7 @@ export class AgentsController {
   constructor(private readonly agentProfileService: AgentProfileService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List all agent profiles with scenario coverage and metrics.' })
+  @ApiOperation({ summary: 'List all agent profiles with scenario coverage.' })
   async listAgents(): Promise<AgentProfileDto[]> {
     return this.agentProfileService.listProfiles();
   }

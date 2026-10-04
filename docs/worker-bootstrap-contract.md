@@ -20,9 +20,9 @@ flat and framework-agnostic; both `macp_sdk` (Python) and
 > additional fields the service threads through `metadata` for its own
 > agents.
 
-As of April 2026 the contract carries direct-agent-auth fields — a per-agent
-Bearer token, the runtime gRPC address, an initiator payload, and an optional
-cancel-callback tuple. See [`docs/direct-agent-auth.md`](direct-agent-auth.md)
+The contract carries direct-agent-auth fields — a per-agent Bearer token
+(always present), the runtime gRPC address, an initiator payload, and an
+optional cancel-callback tuple. See [`docs/direct-agent-auth.md`](direct-agent-auth.md)
 for the end-to-end flow.
 
 ## Delivery mechanism
@@ -50,15 +50,15 @@ interface BootstrapPayload {
   session_id: string;               // UUID v4, allocated at compile time
   mode: string;                     // e.g. "macp.mode.decision.v1"
   runtime_url: string;              // gRPC endpoint (e.g. "runtime.local:50051")
-  auth_token?: string;              // Per-agent Bearer token (RFC-MACP-0004 §4)
+  auth_token: string;               // Per-agent Bearer JWT — always populated (minted per spawn)
   agent_id?: string;                // Dev-only identity header value
-  secure?: boolean;                 // TLS flag (RFC-MACP-0006 §3)
+  secure?: boolean;                 // TLS flag (RFC-MACP-0004 §2)
   allow_insecure?: boolean;         // Required when secure=false
   participants?: string[];
   mode_version?: string;
   configuration_version?: string;
   policy_version?: string;
-  initiator?: { session_start: { ... }; kickoff?: { ... } };
+  initiator?: { session_start: { ... }; kickoff?: { ... } };  // initiator agent only
   cancel_callback?: { host: string; port: number; path: string };
   metadata?: { /* macp-playground-specific — see below */ };
 }
@@ -66,7 +66,14 @@ interface BootstrapPayload {
 
 Refer to the SDK `fromBootstrap` doc linked above for the meaning and
 validation of every field the SDK consumes. The macp-playground writes
-these fields verbatim; it does not own their semantics.
+these fields verbatim; it does not own their semantics. The protocol rules
+behind them are
+[RFC-MACP-0004 §2–§3](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/blob/main/rfcs/RFC-MACP-0004-security.md#2-transport-security)
+(TLS; sender derived from authenticated identity) and, for
+`initiator.session_start.extensions` (string values, base64 per
+[RFC-MACP-0001 §10.3](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/blob/main/rfcs/RFC-MACP-0001-core.md#103-bytes-encoding)),
+the core spec. How `auth_token` is minted is described in
+[`direct-agent-auth.md` § AUTH-2](direct-agent-auth.md#auth-2--on-demand-jwt-minting).
 
 ### `metadata.*` — macp-playground additions
 
@@ -81,8 +88,9 @@ for agent logic and the in-tree `PolicyStrategy`:
 | `policy_hints` | Denormalized policy fields (see table below) |
 | `session_context` | Scenario-specific inputs (e.g. `transactionAmount`) |
 
-`metadata.policy_hints` carries the RFC-MACP-0012 fields consumed by
-`PolicyStrategy`:
+`metadata.policy_hints` carries the denormalized
+[RFC-MACP-0012](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/blob/main/rfcs/RFC-MACP-0012-policy.md)
+fields consumed by `PolicyStrategy`:
 
 | Field                 | Default | Description                                                         |
 |-----------------------|---------|---------------------------------------------------------------------|
@@ -102,8 +110,8 @@ behavior — e.g. each Python worker's `mappers.py` exposes
 `detect_domain(metadata)`, which maps the scenario ref's pack-slug prefix
 (`fraud`/`lending`/`claims`) to a `Literal['fraud','lending','claims']`,
 defaulting to `'fraud'` with a logged warning for anything missing or
-unrecognized. `extract_agent_metadata(bootstrap)` reads `scenario_ref` and
-`role` out of the bootstrap dict for this purpose. This is a shared
+unrecognized. `extract_agent_metadata(metadata)` reads `scenario_ref` and
+`role` out of the bootstrap's `metadata` dict for this purpose. This is a shared
 function *signature*, not shared judgment — each worker still owns its own
 domain logic; the contract just guarantees every worker can find out which
 domain and role it's running as.
@@ -122,31 +130,26 @@ the macp-playground it plays out as:
 4. **React** — handlers receive `Proposal`, `Evaluation`, `Objection`,
    `Vote`, `Commitment`, etc.
 5. **Emit** — `ctx.actions.evaluate() / .vote() / .commit() / .objection()`.
-6. **Cancel callback** — the SDK auto-binds an HTTP listener from
-   `bootstrap.cancel_callback` during `fromBootstrap()` / `from_bootstrap()`.
+6. **Cancel callback** — when `bootstrap.cancel_callback` is present the SDK
+   binds a local HTTP listener on it (the TypeScript SDK when
+   `participant.run()` starts, the Python SDK inside `from_bootstrap()`); a
+   POST stops the participant. With the default
+   `MACP_CANCEL_CALLBACK_PORT_BASE=0` the port is ephemeral. The control-plane
+   cannot use this listener yet — see
+   [`direct-agent-auth.md` § CP-1 run registration](direct-agent-auth.md#cp-1-run-registration).
 7. **Exit** — terminal status closes the stream; `onTerminal` fires.
 
 ## Ambient envelopes (Signal / Progress)
 
 Agents may emit envelopes that are not tied to a specific mode — e.g. the
 `session.context` **Signal** emitted by `risk-decider.worker.ts` once it
-observes the first `Proposal`. Ambient envelopes have `mode = ""` and
-`session_id = ""` (correlation id travels in the payload). For the
-runtime to accept these, the agent's JWT must include `""` in its
-`allowed_modes` scope — the macp-playground does this automatically in
-`deriveScopes()` (`src/hosting/process-example-agent-host.provider.ts`).
-Dropping the empty string triggers `FORBIDDEN` at the runtime boundary.
-
-For the runtime-side `Signal` semantics (no session binding, not
-persisted, delivered via `WatchSignals`), see
-[`macp-runtime/docs/API.md` § WatchSignals](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#watchsignals).
-
-> **v0.5.0 watch-side note.** `WatchSignals` now **requires authentication**, and
-> watch streams that fall behind are terminated with `RESOURCE_EXHAUSTED` (the
-> consumer must reconnect). This affects the **consumer** side only — the
-> macp-playground merely *emits* Signals over an authenticated `Send`, so nothing
-> here changes. Anyone pointing an observer (e.g. the control-plane) at the
-> runtime must authenticate the watch and handle `RESOURCE_EXHAUSTED` reconnects.
+observes the first `Proposal`. Nothing in the bootstrap file changes for
+these; what makes them work is the `""` entry the macp-playground adds to
+every agent's `allowed_modes` JWT scope. See
+[`direct-agent-auth.md` § Ambient envelopes](direct-agent-auth.md#ambient-envelopes-signal--progress)
+for the scope rule, and
+[`macp-runtime/docs/API.md` § WatchSignals](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#watchsignals)
+for the runtime-side semantics.
 
 ## SDK usage patterns
 

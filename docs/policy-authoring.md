@@ -37,11 +37,18 @@ Every level of a policy's `rules` object is a **closed schema** —
 `additionalProperties: false` at every nesting level (`voting`,
 `voting.quorum`, `objection_handling`, `evaluation`, `commitment`). An
 unrecognized key anywhere (a typo like `veto_threshhold`) is rejected, not
-silently ignored. This repo validates every shipped `policies/*.json` file
-against the real vendored schema at `schemas/policy/` (see its `README.md`
-for provenance) — both as a hard CI gate
-(`src/policy/policies-on-disk.spec.ts`) and via `npm run scenario:lint`
-during authoring.
+silently ignored. This repo validates policies against the real vendored
+schemas at `schemas/policy/` (see its `README.md` for provenance) in three
+places:
+
+- **CI gate** — `src/policy/policies-on-disk.spec.ts` validates every shipped
+  `policies/*.json` file's `rules` *and* full descriptor (including the
+  `schema_version` enum).
+- **Authoring** — `npm run scenario:lint` validates the `rules` of each policy
+  a scenario's `policyVersion` references, reporting failures as errors (see
+  [`scenario-cli.md`](scenario-cli.md)).
+- **Load time** — `PolicyLoaderService` logs non-blocking warnings (see
+  [Local validation warnings](#local-validation-warnings)).
 
 Two exceptions to the closed-key rule:
 
@@ -60,6 +67,20 @@ Two exceptions to the closed-key rule:
 required) alongside `none`/`majority`/`supermajority`/`unanimous`/`weighted`
 — not yet used by any policy shipped in this repo, but a legal value.
 
+### Wildcard-mode policies
+
+A policy whose `mode` is `"*"` binds to sessions of every mode, so its
+`rules` are checked against all five standards-track mode schemas
+(`decision`, `quorum`, `proposal`, `task`, `handoff`) rather than Decision's
+alone — the runtime does the same at registration (see
+[`macp-runtime/docs/policy.md` § What registration checks](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md#what-registration-checks)).
+Locally, `PolicyRulesValidator` (`src/policy/policy-rules-validator.ts`)
+validates **per top-level key**: each key must be valid under at least one
+mode schema that declares it, and a key no mode declares (a typo) is an
+error. So a Decision-shaped wildcard such as the shipped `policy.default.json`
+passes, while a malformed Quorum `threshold` inside a wildcard policy is
+caught. `policy.default.json` is the only wildcard policy shipped here.
+
 ## Included Policies
 
 These are the policies shipped in `policies/` for the demo scenarios:
@@ -72,6 +93,9 @@ These are the policies shipped in `policies/` for the demo scenarios:
 | `policy.fraud.unanimous` | unanimous | - | 100% | Yes (1) | 0.7 | initiator_only |
 | `policy.lending.conservative` | supermajority | 67% | 3 count | Yes (1) | 0.6 | **designated_role** (`risk-agent`, `compliance-agent`) |
 | `policy.claims.majority` | majority | 50% | 2 count | No | 0.0 | initiator_only |
+
+All declare `"mode": "macp.mode.decision.v1"` except `policy.default`, which
+is `"*"` (see above).
 
 ## Connecting Policies to Scenarios
 
@@ -166,7 +190,7 @@ Flow (`src/policy/policy-registrar.service.ts`):
    and the fix (restart the runtime, or clear its registry, to pick up the
    local `schema_version`).
 
-**Read-only registry (v0.5.0).** A runtime started with `MACP_POLICIES_DIR`
+**Read-only registry.** A runtime started with `MACP_POLICIES_DIR`
 owns its registry from disk and rejects `RegisterPolicy` with
 `FAILED_PRECONDITION`. The registrar detects this on the first rejection,
 **stops mutating**, and switches to **verification**: it calls `getPolicy` for
@@ -176,10 +200,10 @@ runtime's policies dir. For this deployment shape, mount `./policies` into the
 runtime and set `REGISTER_POLICIES_ON_LAUNCH=false` to skip the probe entirely
 (see [`deployment.md`](deployment.md) § Read-only registry).
 
-Registration is skipped (with a warning, not an error) when:
+Registration is skipped (never an error) when:
 
-- `REGISTER_POLICIES_ON_LAUNCH=false` — explicit opt-out.
-- `MACP_RUNTIME_ADDRESS` is unset — typically CI/test.
+- `REGISTER_POLICIES_ON_LAUNCH=false` — explicit opt-out (logged at info).
+- `MACP_RUNTIME_ADDRESS` is unset — typically CI/test (logged as a warning).
 
 If the admin JWT mint fails (e.g. auth-service unreachable), the
 registrar **aborts the entire registration pass** and logs an ERROR.
@@ -201,66 +225,55 @@ and may reject it with `POLICY_DENIED`, e.g.:
 
 A rejected commit produces no terminal commitment, so the session would
 otherwise linger until TTL expiry. To keep the demo deterministic, the
-`risk-decider` coordinator catches `POLICY_DENIED` and drives the session to a
-terminal **`CANCELLED`** state via `participant.client.cancelSession()`
-(macp-runtime v0.5.0 / `macp-sdk-typescript` 0.5.0). The control-plane observer
-maps the resulting `CANCELLED` lifecycle event to a `cancelled` run status —
-distinct from a TTL `EXPIRED` run.
+`risk-decider` coordinator catches any rejected commit (typically
+`POLICY_DENIED`) and drives the session to a terminal **`CANCELLED`** state via
+`participant.client.cancelSession()`. It does the same when its wait-all
+deadline (`RISK_DECIDER_WAIT_ALL_TIMEOUT_MS`, default 60 s) passes with quorum
+unmet, so no commit is attempted at all. The control-plane observer maps the
+resulting `CANCELLED` lifecycle event to a `cancelled` run status — distinct
+from a TTL `EXPIRED` run.
 
-> **Empty `policy_version` on commits (v0.5.0).** The runtime now matches an
-> **empty** commitment `policy_version` to whatever policy the session is bound
-> to, so clients need not echo `policy.default` for the default-governance case.
-> The SDK still echoes `policy.default` for us; both continue to match — the new
-> rule only widens acceptance.
+An empty `policy_version` resolves to the runtime's built-in default policy;
+see [`macp-runtime/docs/policy.md` § Default policy](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md#default-policy).
 
 ### Outcome-aware commits: a decline can *resolve* instead of being denied
 
-As of `macp-runtime` v0.5.0 the Decision commitment evaluator is **outcome-aware**,
-so `POLICY_DENIED` → `CANCELLED` is **not** the universal result:
+The runtime's Decision evaluator is **outcome-aware**, so `POLICY_DENIED` →
+`CANCELLED` is **not** the universal result in this demo. The coordinator
+commits with `outcomePositive` inferred from its decision; when that is a
+**decline** backed by at least one decisive explicit reject vote — the common
+reject-majority fraud/lending/claims path — the runtime accepts it and the
+session **resolves**. No `POLICY_DENIED` occurs, the `cancelSession` fallback
+does not fire, and the control-plane observer records a declined outcome with
+run status **`completed`** (not `cancelled`). The fallback above therefore
+handles only genuine denials (for example an approve-side commit short of
+quorum or confidence, or a decline with no decisive reject).
 
-- A **negative (decline) commitment** (`outcome_positive = false`) backed by **at
-  least one explicit reject vote** now **finalizes and resolves** the session
-  directly — no `POLICY_DENIED`, and the `cancelSession` fallback does **not**
-  fire. The control-plane observer records a decided-and-**declined** outcome with
-  run status **`completed`** (not `cancelled`). This is the common path for a
-  reject-majority fraud/lending/claims decision.
-- The `POLICY_DENIED` → `CANCELLED` fallback above still applies to **genuine
-  denials**: an **approve-side** commit short of quorum/confidence, a **decline
-  with no explicit reject** vote, or a policy that sets
-  `objection_handling.critical_objection_action: "hold"`.
+The exact rules — the decline guard, `allow_decline_over_approval`,
+`critical_objection_action` (`deny` / `hold` / `finalize_decline`), and how
+they interact with quorum — are runtime-owned; see
+[`macp-runtime/docs/policy.md` § Voting algorithm semantics](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md#voting-algorithm-semantics)
+and [RFC-MACP-0007 §6.2](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/blob/main/rfcs/RFC-MACP-0007-decision-mode.md#62-negative-committed-outcomes-vote-gated-and-objection-gated-decline).
 
-The reject-majority decline-resolves behavior applies to **any** bound Decision
-policy with a real voting algorithm, independent of `schema_version`. `schema_version: 2` is
-the spec-canonical version that additionally carries the optional decline-gating
-fields (`objection_handling.critical_objection_action`,
-`commitment.allow_decline_over_approval`); the runtime accepts `1`, `2`, and `3`.
-`schema_version` is a **closed enum** — `{1, 2, 3}` and nothing else — enforced both by
-the runtime and, as of #81, by this repo's local descriptor validation
-(`src/policy/policy-rules-validator.ts`); a value like `4` is rejected at both layers,
-not merely unrecognized.
-
-> **`schema_version: 3` is the current recommended value for new policies.**
-> Only **one** evaluator branch is actually gated on `schema_version` — the
-> empty-tally check (an algorithm other than `none` produces zero decisive
-> votes): under `schema_version >= 3` it always denies; under `1`/`2` it denies
-> only when `rules.commitment.require_vote_quorum` is `true`, and silently
-> allows otherwise (the fail-open case RFC-MACP-0012 §4.1/§8 closes). Every
-> other evaluator rule (weighted electorate, negative/zero weighted totals,
-> `threshold: 0.0` at admission) is version-independent by design and applies
-> to every `schema_version` equally — bumping the number does not change
-> those. All six bundled `policies/*.json` files declare `schema_version: 3`,
-> but each of them already set `require_vote_quorum: true` (or uses
-> `algorithm: "none"`, which is exempt from the empty-tally check entirely),
-> so none of them was ever reachable by the fail-open arm — the bump is
-> forward-hygiene for whatever policy gets authored next, not a behavior
-> change for the shipped six. `policy.default` is the one exception worth
-> knowing about: it is excluded from registration
-> (`PolicyLoaderService.listRegistrablePolicies()`) and the runtime rejects
-> registering under the reserved `policy.default` id outright — the file's
-> `schema_version: 3` is never actually sent anywhere; the runtime always
-> evaluates the default-governance case against its own built-in default
-> policy. There is no other shape difference between the schema versions —
-> bump the number, nothing else, when migrating an older policy.
+> **`schema_version`: use `3` for new policies.** What each version means
+> (`2` additive, `3` semantic: an empty decisive tally denies a positive
+> commitment whatever `require_vote_quorum` says) is defined in
+> [RFC-MACP-0012 §3](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/blob/main/rfcs/RFC-MACP-0012-policy.md#3-policy-descriptor)
+> and explained in
+> [`macp-runtime/docs/policy.md` § What registration checks](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md#what-registration-checks).
+> Playground-specific facts:
+>
+> - All six bundled `policies/*.json` declare `schema_version: 3`. Each already
+>   set `require_vote_quorum: true` or uses `algorithm: "none"`, so moving them
+>   to `3` changed no shipped behaviour.
+> - `policy.default` is never registered (`listRegistrablePolicies()` excludes
+>   it; the id is the runtime's own built-in), so its file's `schema_version`
+>   is never sent anywhere.
+> - The runtime's **evaluator** supports `{1, 2, 3}` and denies every commitment
+>   under any other version at commit time. Its registration step rejects only
+>   `0`, so a `4` would register cleanly and then fail every run. This repo
+>   catches it earlier — see
+>   [Local validation warnings](#local-validation-warnings) for where.
 
 ## Creating a Custom Policy
 
@@ -294,25 +307,28 @@ Refer to [`macp-runtime/docs/policy.md`](https://github.com/multiagentcoordinati
 for the legal values of each rule field.
 
 > **`rules.commitment.designated_roles` holds sender identities, not role
-> labels**, despite the name. The runtime's `check_commitment_authority`
-> (`macp-modes/src/mode/util.rs`) matches each entry against the raw envelope
-> `sender` — which in this repo is the scenario roster's participant `id`
+> labels**, despite the name. The runtime matches each entry against the
+> authenticated envelope `sender` (see
+> [`macp-runtime/docs/policy.md` § Commitment authority](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md#commitment-authority))
+> — which in this repo is the scenario roster's participant `id`
 > (e.g. `risk-agent`, `compliance-agent` from `packs/_shared/participants/`),
 > **not** its cosmetic `role:` field (`risk`, `compliance`). A policy that puts
-> role labels here instead of participant IDs will silently deny every commit
+> role labels here instead of participant IDs will reject every commit
 > from every participant once `authority: "designated_role"` is set — the
-> runtime rejects it at commitment time (`POLICY_DENIED`), not at registration,
-> so nothing catches the mistake until a real run. This is unrelated to the
-> `policyHints.designatedRoles` field below, which *is* free-form and
-> role-labeled — it's advisory-only, consumed by the local `PolicyStrategy`,
-> and never sent to or enforced by the runtime.
+> runtime rejects it at commitment time (as `FORBIDDEN`, a sender-authorization
+> failure, not `POLICY_DENIED`), not at registration, so the runtime will not
+> flag the mistake before a real run. This repo's CI gate does
+> (`policies-on-disk.spec.ts` checks shipped `designated_roles` against real
+> participant ids). This is unrelated to the
+> `policyHints.designatedRoles` field above, which *is* free-form and
+> role-labeled — it's advisory-only: nothing in this repo reads it (see the
+> callout above), and it is never sent to or enforced by the runtime.
 
-> **Quorum scale (v0.5.0).** A `percentage`-type quorum value is on a **0–100
-> scale** — the runtime evaluator divides the observed voter ratio by 100 before
-> comparing. Write `"value": 100` for "all participants must vote", not `1.0`
-> (which means **1%** and is satisfied by a single voter). A `count`-type quorum
-> value is an absolute voter count. This matches v0.5.0's clarified quorum-mode
-> semantics; `policy.fraud.unanimous` was corrected accordingly.
+> **Quorum scale.** A `percentage`-type `voting.quorum.value` is on a **0–100
+> scale**, not 0–1: write `"value": 100` for "all participants must vote", as
+> `policy.fraud.unanimous` does — `1.0` would mean 1%. A `count`-type value is
+> an absolute voter count. The evaluation rules are runtime-owned; see
+> [`macp-runtime/docs/policy.md` § Decision Mode](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md#decision-mode).
 
 2. **Reference it in a scenario template:**
 
@@ -356,8 +372,10 @@ Checklist:
    matching `MACP_AUTH_ISSUER` / `MACP_AUTH_AUDIENCE`. A mismatch rejects
    the admin JWT at the runtime boundary, which logs as
    `policy_register_exception`. See
-   [`macp-runtime/docs/getting-started.md` § Authentication](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/getting-started.md#authentication)
-   for the full JWT setup.
+   [`macp-runtime/docs/getting-started.md` § JWT mode](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/getting-started.md#jwt-mode)
+   for the full JWT setup, and
+   [`macp-auth-service/docs/integration.md` § Runtime wiring](https://github.com/multiagentcoordinationprotocol/macp-auth-service/blob/main/docs/integration.md#runtime-wiring)
+   for the auth-service side.
 4. **Manual re-register.** Restart the macp-playground once the
    auth-service is healthy — registration is idempotent, so any
    already-registered policies come back as `already` in the log summary.
@@ -378,11 +396,20 @@ obviously invalid combinations. As of #81, this check includes real
 JSON Schema definitions published in the spec repo — so an unknown key
 or an empty `designated_roles` under `designated_role` authority is now
 caught locally, with a logged warning, before registration is even
-attempted. (`schema_version`'s allowed range is checked separately by
-this loader's own pre-existing bound; the schema's closed `{1, 2, 3}`
-enum is enforced by the CI gate in `src/policy/policies-on-disk.spec.ts`,
-which validates each shipped file's full descriptor, not by this
-warn-on-load path.) This local check is still non-blocking (a bad file
+attempted. Wildcard-mode policies are checked as described under
+[Wildcard-mode policies](#wildcard-mode-policies).
+
+**Where `schema_version` is enforced.** The load path does not run the
+descriptor schema; it applies its own bound instead, warning when
+`schema_version` is below `1` or above `3` (`MAX_SUPPORTED_SCHEMA_VERSION`
+in `src/policy/policy-loader.service.ts`, mirroring the runtime evaluator).
+The schema's closed `{1, 2, 3}` enum itself — via
+`PolicyRulesValidator.validateDescriptor()` — is enforced only by the CI gate
+`src/policy/policies-on-disk.spec.ts`, which validates each shipped file's
+full descriptor. `scenario:lint` validates `rules` only, not
+`schema_version`.
+
+This local check is still non-blocking (a bad file
 loads anyway, matching this repo's existing warn-and-load design) and it
 is not a proxy for the runtime's own validation: the runtime's
 `RegisterPolicy` enforcement is a **separate, hand-written Rust

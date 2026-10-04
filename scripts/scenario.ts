@@ -28,7 +28,7 @@ async function main(): Promise<void> {
 
   program
     .command('dry-run <scenarioRef>')
-    .description('Compile a scenario offline and print the resulting ExecutionRequest')
+    .description('Compile a scenario offline and print the resulting CompileLaunchResult')
     .requiredOption('--inputs <file>', 'path to a JSON file containing user inputs')
     .option('--template <slug>', 'optional template slug to apply')
     .option('--mode <mode>', 'live or sandbox (default: sandbox)', 'sandbox')

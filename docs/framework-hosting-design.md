@@ -15,17 +15,30 @@ Service bootstrap (once per process):
 Per-run:
 POST /examples/run
   → CompilerService.compile()              [framework-agnostic]
-  → applyRequestOverrides(tags/requester)  [merge UI-provided fields]
+  → applyRequestOverrides(tags/requester/runLabel)  [merge UI-provided fields]
   → HostingService.resolve()               [materializes agent metadata]
-  → HostingService.attach()                [launches framework workers]
-    → ProcessExampleAgentHostProvider
-      → HostAdapterRegistry.get(framework)
-      → ManifestValidator.validate(manifest)
-      → AuthTokenMinterService.mintToken(sender, deriveScopes(...))
-      → AgentHostAdapter.prepareLaunch()
-      → LaunchSupervisor.writeBootstrapFile(BootstrapPayload) → /tmp/*.json
-      → LaunchSupervisor.launch()          [spawns process with MACP_BOOTSTRAP_FILE env]
+  → concurrently:
+     ControlPlaneRunClient.submitRun()     [optional CP-1 POST /runs; never fatal]
+     HostingService.attach()               [launches framework workers]
+       → for each binding, sequentially, INITIATOR FIRST:
+         → ProcessExampleAgentHostProvider.attach()
+           → HostAdapterRegistry.get(framework)
+           → ManifestValidator.validate(manifest)
+           → AuthTokenMinterService.mintToken(sender, deriveScopes(...))
+           → LaunchSupervisor.writeBootstrapFile(BootstrapPayload) → $TMPDIR/macp-bootstrap/*.json
+           → merge EXAMPLE_AGENT_PYTHON_PATH / EXAMPLE_AGENT_NODE_PATH into
+             manifest.host (a manifest's own host.python / host.node wins)
+           → AgentHostAdapter.prepareLaunch()
+           → LaunchSupervisor.launch()       [spawns process with MACP_BOOTSTRAP_FILE env]
+           → LaunchSupervisor.confirmSpawn() [races early error/exit against a
+                                              short grace window before the next spawn]
+  → any attached-mode agent not confirmed → 502 AGENT_ATTACH_FAILED
 ```
+
+A failed manifest validation or spawn does not throw inside `attach()` — that
+agent comes back with `status: "resolved"` and `participantMetadata.manifestErrors`
+/ `spawnError`; `ExampleRunService` then turns any such `attached`-mode agent into
+`502 AGENT_ATTACH_FAILED` (see [`api-reference.md`](api-reference.md#post-examplesrun)).
 
 With direct-agent-auth (RFC-MACP-0004 §4), the macp-playground is no longer
 in the envelope path. Each spawned agent opens its own authenticated gRPC
@@ -38,7 +51,7 @@ registrar runs at `onApplicationBootstrap` rather than per-request.
 
 ### Compiler stays framework-agnostic
 
-The compiler produces `ExecutionRequest` payloads with participants, runtime metadata, kickoff messages, and policy. It never references LangGraph, LangChain, or CrewAI.
+The compiler produces a `CompileLaunchResult` — `runDescriptor`, `initiator` (SessionStart + kickoff), and internal `scenarioMeta` (policy hints, session context) — with no reference to LangGraph, LangChain, or CrewAI. Shape: [`api-reference.md`](api-reference.md#post-launchcompile).
 
 ### Hosting layer owns framework integration
 
@@ -95,10 +108,9 @@ example below shows the macp-playground additions
   "initiator": { "session_start": { ... }, "kickoff": { ... } },
   "cancel_callback": { "host": "127.0.0.1", "port": 9123, "path": "/agent/cancel" },
   "metadata": {
-    "run_id": "run-abc",
-    "trace_id": "trace-xyz",
+    "run_id": "7f3d....-....",
     "scenario_ref": "fraud/high-value-new-device@1.0.0",
-    "role": "coordinator",
+    "role": "risk",
     "framework": "custom",
     "agent_ref": "risk-agent",
     "policy_hints": { "type": "majority", "vetoEnabled": true, "vetoThreshold": 1 },
@@ -109,6 +121,8 @@ example below shows the macp-playground additions
 
 `initiator` is present on exactly one bootstrap per run — the initiator agent
 emits `SessionStart` + the first mode-specific envelope (e.g. `Proposal`).
+`metadata.run_id` is the session id (the playground uses one id for both), and
+`metadata.trace_id` is currently never populated.
 
 ## Component Map
 
@@ -127,8 +141,8 @@ emits `SessionStart` + the first mode-specific envelope (e.g. `Proposal`).
 | Hosting Service | `src/hosting/hosting.service.ts` | Two-phase resolve + attach orchestration |
 | Agent Profile Service | `src/catalog/agent-profile.service.ts` | Builds agent profiles with registry-scanned scenario coverage |
 | Agent Catalog | `src/example-agents/example-agent-catalog.service.ts` | Hard-coded agent definitions (4 agents) |
-| Python Agent SDK | upstream `macp_sdk` (PyPI) | Python workers call `macp_sdk.agent.from_bootstrap()` directly — no local worker SDK in this repo. Handlers receive the same `ctx.actions` surface (`evaluate`, `vote`, `commit`, etc.) as the TS SDK. |
-| Node Worker Runtime | `src/example-agents/runtime/` | In-tree TS modules for the custom (Node) Risk Agent: `bootstrap-loader.ts`, `log-agent.ts`, `policy-strategy.ts`, and `risk-decider.worker.ts`. Runtime IO uses `macp-sdk-typescript` directly. Cancel-callback delivery is owned by the SDK (`fromBootstrap()` auto-binds the listener). |
+| Python Agent SDK | upstream `macp-sdk-python` (PyPI; imported as `macp_sdk`) | Python workers call `macp_sdk.agent.from_bootstrap()` directly — no local worker SDK in this repo. Handlers receive the same `ctx.actions` surface (`evaluate`, `vote`, `commit`, etc.) as the TS SDK. |
+| Node Worker Runtime | `src/example-agents/runtime/` | In-tree TS modules for the custom (Node) Risk Agent: `bootstrap-loader.ts`, `log-agent.ts`, `policy-strategy.ts`, and `risk-decider.worker.ts`. Runtime IO uses `macp-sdk-typescript` directly. Cancel-callback delivery is owned by the SDK (the TS SDK binds the listener when `participant.run()` starts). |
 | Policy Strategy | `src/example-agents/runtime/policy-strategy.ts` | Policy-aware decision logic for the coordinator (quorum, voting, veto, confidence filtering). Commitment authority is enforced solely by the runtime — see the note below. |
 | Policy Registrar | `src/policy/policy-registrar.service.ts` | Mints an admin JWT (`can_manage_mode_registry`) at service bootstrap and registers every non-default policy with the runtime via `MacpClient.registerPolicy()`. |
 | Auth Minter | `src/auth/auth-token-minter.service.ts` | On-demand JWT minting against the standalone auth-service (`POST /tokens`). Single-flight cache keyed by `(sender, scope-hash)`. See `docs/direct-agent-auth.md`. |
@@ -191,7 +205,7 @@ Startup (once per macp-playground process):
 Per-run:
   scenario.yaml (policyVersion + policyHints)
     → template override (optional)
-    → CompilerService → scenarioSpec.session.policyHints (internal bookkeeping)
+    → CompilerService → scenarioMeta.policyHints (internal, never on the wire)
     → BootstrapPayload.metadata.policy_hints (threaded into every agent bootstrap)
     → Worker reads policy_hints → PolicyStrategy.decide()
 ```

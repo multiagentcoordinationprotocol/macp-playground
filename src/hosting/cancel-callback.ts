@@ -5,10 +5,9 @@
  *
  * This is NOT currently wired into the CP-1 `RunDescriptor` submission — see
  * `docs/direct-agent-auth.md`'s "Known gap: control-plane-initiated cancel is
- * not wired" section. The receiving HTTP server this tuple describes
- * (`cancel-callback-server.ts`) was deleted in commit `51396ab`, so nothing
- * actually binds the port this function computes; the value only flows into
- * each agent's own bootstrap payload today.
+ * not wired" section. The agent-side SDK listener (not this repo) binds the
+ * tuple from the bootstrap payload; the gap is that nothing reports the bound
+ * port back to the control plane.
  */
 export interface CancelCallbackConfig {
   host: string;

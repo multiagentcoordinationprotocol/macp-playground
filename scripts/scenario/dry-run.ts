@@ -50,7 +50,7 @@ export async function runDryRun(opts: DryRunOptions): Promise<number> {
       inputs,
       mode: opts.mode
     });
-    // eslint-disable-next-line no-console -- the compiled ExecutionRequest on stdout IS this command's output contract
+    // eslint-disable-next-line no-console -- the compiled CompileLaunchResult on stdout IS this command's output contract
     console.log(JSON.stringify(result, null, 2));
     return 0;
   } catch (err) {
