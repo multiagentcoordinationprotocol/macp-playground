@@ -12,7 +12,12 @@ packs/{pack-slug}/
     templates/
       default.yaml
       *.yaml
+    data/                # optional — bulk JSON/YAML referenced via !include
+    fixtures/            # optional — sample inputs used by scenario:validate / scenario:dry-run
+packs/_shared/           # cross-pack fragments — loader ignores _-prefixed dirs
 ```
+
+See [Splitting large scenarios with `!include`](#splitting-large-scenarios-with-include) and [Sharing fragments across scenarios](#sharing-fragments-across-scenarios) for `data/` and `_shared/`.
 
 ## Pack File
 
@@ -63,6 +68,8 @@ spec:
     modeVersion: 1.0.0
     configurationVersion: config.default
     policyVersion: policy.default          # optional
+    policyHints:                           # optional — see policy-authoring.md § Policy Hints
+      type: none
     ttlMs: 300000
     maxSuspendMs: 15000                     # optional — session-bound suspend cap (proto 0.1.5)
     initiatorParticipantId: risk-agent     # optional
@@ -72,7 +79,7 @@ spec:
         role: fraud
         agentRef: fraud-agent              # matches example-agent catalog
 
-    commitments:                           # optional — propagated to session.commitments
+    commitments:                           # optional — authoring/lint metadata only (see Commitments)
       - id: fraud-risk-assessed
         title: Fraud risk assessed
         description: Fraud specialist has recorded a risk verdict.
@@ -81,6 +88,10 @@ spec:
 
     contextTemplate:                       # {{ inputs.* }} substitution
       transactionAmount: "{{ inputs.transactionAmount }}"
+
+    contextId: fraud-ctx-001               # optional — passed through to sessionStart.contextId
+    extensions:                            # optional — sessionStart.extensions
+      demo.trace: ZGVtby10cmFjZQ==         # string values, base64 (see note below)
 
     metadataTemplate:
       demoType: fraud-decision
@@ -98,6 +109,7 @@ spec:
               proposal_id: "{{ inputs.customerId }}-review"
 
   execution:
+    idempotencyKey: fraud-demo-001         # optional — copied to runDescriptor.execution
     tags: [demo, fraud]
     requester:
       actorId: macp-playground
@@ -116,6 +128,15 @@ spec:
 > against the cap. See the `suspend-demo` template under the fraud pack, which
 > pairs `maxSuspendMs: 15000` with the `suspend` customerId sentinel that
 > triggers `risk-decider.worker.ts`'s initiator-driven suspend/resume flow.
+
+> **`extensions` (optional).** A mapping copied verbatim into the initiator's
+> `sessionStart.extensions`. Every value must be a **string**; protobuf `bytes`
+> travel as base64 in JSON per
+> [RFC-MACP-0001 §10.3](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/blob/main/rfcs/RFC-MACP-0001-core.md).
+> The shape (scenario and template `overrides.launch.extensions`) is checked by
+> `scenario:validate`, `scenario:lint`, and the compiler, which rejects a bad
+> value with `COMPILATION_ERROR` (400). How the SDK decodes the value is the
+> SDK's contract, not this repo's.
 
 ## Template File
 
@@ -157,7 +178,7 @@ Use `{{ path.to.value }}` placeholders in `contextTemplate`, `metadataTemplate`,
 
 ## Commitments
 
-`launch.commitments` is an optional array of commitment definitions that declare the discrete governance steps the session is expected to produce. The compiler forwards them onto `ExecutionRequest.session.commitments`, and the control plane exposes them on the run-state projection so UIs can render the expected commitment list before the first evaluation fires.
+`launch.commitments` is an optional array of commitment definitions that declare the discrete governance steps the session is expected to produce. It is **authoring metadata only**: the compiler does not emit it — it appears nowhere in the `CompileLaunchResult`, the `runDescriptor`, the agent bootstrap, or the CP-1 submission. Its only consumers are `scenario:validate` and `scenario:lint` (see [scenario-cli.md](./scenario-cli.md)), which check descriptions and template overrides.
 
 Each entry:
 
@@ -169,9 +190,9 @@ Each entry:
 | `requiredRoles` | string[] | no | Participant roles expected to contribute |
 | `policyRef` | string | no | Policy version this commitment is evaluated under |
 
-Template overrides that set `commitments` **replace** the scenario's array (array values are not merged element-wise).
+Template overrides that set `commitments` **replace** the scenario's array (array values are not merged element-wise); `scenario:lint` warns when the replacement is shorter than the original.
 
-Placeholder substitution (`{{ inputs.* }}`) applies inside commitment fields, same as other launch templates.
+Because the compiler never reads commitments, `{{ inputs.* }}` placeholders inside them are **not** substituted. `scenario:validate` still checks that any placeholder written there is reachable from the schema or a fixture.
 
 ## Default Merge Precedence
 
@@ -181,7 +202,7 @@ JSON Schema defaults < Template defaults < User-provided inputs
 
 ## Adding a New Scenario
 
-The fastest path is `npm run scenario:new <pack> <slug>` — see [`scenario-cli.md`](./scenario-cli.md). Manually:
+The fastest path is `npm run scenario:new -- <pack> <slug>` — see [`scenario-cli.md`](./scenario-cli.md). Manually:
 
 1. Create the pack directory: `packs/{slug}/pack.yaml`
 2. Create the scenario directory: `packs/{slug}/scenarios/{scenario-slug}/{version}/`
@@ -189,7 +210,7 @@ The fastest path is `npm run scenario:new <pack> <slug>` — see [`scenario-cli.
 4. Add at least a `default.yaml` template in `templates/`
 5. Ensure `agentRef` values in participants match entries in the example agent catalog
 6. The service auto-discovers new packs on the next request (when `REGISTRY_CACHE_TTL_MS=0`)
-7. `npm run scenario:validate packs/{slug}/scenarios/{scenario-slug}/{version}/scenario.yaml` to confirm before booting the service.
+7. `npm run scenario:validate -- packs/{slug}/scenarios/{scenario-slug}/{version}/scenario.yaml` to confirm before booting the service.
 
 ## Splitting large scenarios with `!include`
 

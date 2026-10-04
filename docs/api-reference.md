@@ -11,9 +11,11 @@ All endpoints return JSON. Error responses follow the format:
 }
 ```
 
-`metadata` is **omitted entirely** when the error carries none (`src/errors/app-exception.ts:19`) — it is not emitted as `null` or `{}`. `statusCode`, `errorCode` and `message` are always present.
+`metadata` is **omitted entirely** when the error carries none (`src/errors/app-exception.ts`) — it is not emitted as `null` or `{}`. `statusCode`, `errorCode` and `message` are always present on errors raised by the service itself (`AppException`). Errors raised by Nest's own machinery before a handler runs keep Nest's shape instead — see [Error codes](#error-codes).
 
-Authentication is optional. When `AUTH_API_KEYS` is configured, pass a valid key via the `x-api-key` header.
+Authentication is optional. When `AUTH_API_KEYS` is configured, pass a valid key via the `x-api-key` header. The guard is global, so this includes `GET /healthz`. A missing or wrong key returns `401` in Nest's shape (`{ "statusCode": 401, "message": "Invalid or missing API key", "error": "Unauthorized" }`, no `errorCode`).
+
+Rate limiting is global: 100 requests per 60 s per client (`@nestjs/throttler`). Excess requests return `429`.
 
 ## Health
 
@@ -99,7 +101,7 @@ List all scenarios across all packs. Each entry includes a `packSlug` field iden
 
 ### `GET /agents`
 
-List all agent profiles with scenario coverage and metrics.
+List all agent profiles with scenario coverage.
 
 **Response:** `200`
 ```json
@@ -119,18 +121,12 @@ List all agent profiles with scenario coverage and metrics.
       "fraud/high-value-new-device@1.0.0",
       "lending/loan-underwriting@1.0.0",
       "claims/auto-claim-review@1.0.0"
-    ],
-    "metrics": {
-      "runs": 0,
-      "signals": 0,
-      "averageLatencyMs": 0,
-      "averageConfidence": 0
-    }
+    ]
   }
 ]
 ```
 
-The `scenarios` array is computed by scanning all packs in the registry for participant references to this agent. The `metrics` object is best-effort; values are zero when the control plane is unavailable.
+The `scenarios` array is computed by scanning all packs in the registry for participant references to this agent. There is no `metrics` field — the playground keeps no run statistics (`src/catalog/agent-profile.service.ts`).
 
 ### `GET /agents/:agentRef`
 
@@ -186,15 +182,26 @@ Get the launch form schema, defaults, agent previews, and runtime hints.
 }
 ```
 
-**Errors:** `404 SCENARIO_NOT_FOUND | VERSION_NOT_FOUND | TEMPLATE_NOT_FOUND`
+**Errors:** `404 PACK_NOT_FOUND | SCENARIO_NOT_FOUND | VERSION_NOT_FOUND | TEMPLATE_NOT_FOUND`
 
 ### `POST /launch/compile`
 
-Validate user inputs and produce the twin outputs needed to run the scenario:
-`runDescriptor` (the scenario-agnostic payload sent to the control-plane),
-`executionRequest` (scenario-layer bookkeeping retained for agent bootstraps),
-`initiator` (SessionStart + kickoff for the one initiator agent), and the
-pre-allocated `sessionId` (UUID v4).
+Validate user inputs and compile them into a `CompileLaunchResult`
+(`src/contracts/launch.ts`):
+
+- `runDescriptor` — the scenario-agnostic payload; the only wire contract (the
+  body of the optional CP-1 `POST /runs`, see
+  [`macp-control-plane/docs/API.md`](https://github.com/multiagentcoordinationprotocol/macp-control-plane/blob/main/docs/API.md#post-runs)).
+- `initiator` — `sessionStart` + `kickoff` for the one initiator agent; present
+  only when the scenario has an identifiable initiator.
+- `sessionId` — pre-allocated UUID v4, also in `runDescriptor.session.sessionId`.
+- `mode` — the requested execution mode (`sandbox` by default).
+- `scenarioMeta` — playground-internal metadata threaded into agent bootstraps
+  (`policyHints`, `sessionContext`, `initiatorParticipantId`); never sent to the
+  control plane or runtime.
+- `display` and `participantBindings` — UI metadata and the participant → agent map.
+
+There is no `executionRequest`; it was removed.
 
 **Request body:**
 ```json
@@ -216,6 +223,7 @@ pre-allocated `sessionId` (UUID v4).
 ```json
 {
   "sessionId": "7c7a8f4d-0d4d-4f2b-8a9e-1f3a6b2e0c11",
+  "mode": "sandbox",
   "runDescriptor": {
     "mode": "sandbox",
     "runtime": { "kind": "rust", "version": "v1" },
@@ -227,39 +235,28 @@ pre-allocated `sessionId` (UUID v4).
       "policyVersion": "policy.default",
       "ttlMs": 300000,
       "participants": [{ "id": "fraud-agent" }, { "id": "risk-agent" }],
-      "metadata": { "source": "macp-playground", "scenarioRef": "fraud/high-value-new-device@1.0.0" }
+      "metadata": {
+        "source": "macp-playground",
+        "sourceRef": "fraud/high-value-new-device@1.0.0",
+        "scenarioRef": "fraud/high-value-new-device@1.0.0",
+        "templateId": "default",
+        "environment": "development"
+      }
     },
-    "execution": { "tags": ["example","fraud"], "requester": { "actorId": "macp-playground", "actorType": "service" } }
+    "execution": {
+      "tags": ["example", "fraud", "high-value-new-device"],
+      "requester": { "actorId": "macp-playground", "actorType": "service" }
+    }
   },
   "initiator": {
     "participantId": "risk-agent",
     "sessionStart": { "intent": "...", "participants": ["fraud-agent","risk-agent"], "ttlMs": 300000, "modeVersion": "1.0.0", "configurationVersion": "config.default", "policyVersion": "policy.default" },
-    "kickoff": { "messageType": "Proposal", "payload": { "option": "review" } }
+    "kickoff": { "messageType": "Proposal", "payloadType": "macp.modes.decision.v1.ProposalPayload", "payload": { "option": "review" } }
   },
-  "executionRequest": {
-    "mode": "sandbox",
-    "runtime": { "kind": "rust", "version": "v1" },
-    "session": {
-      "modeName": "macp.mode.decision.v1",
-      "policyVersion": "policy.default",
-      "policyHints": { "type": "majority", "threshold": 0.5 },
-      "participants": [ /* scenario-layer detail, incl. role, metadata */ ],
-      "commitments": [
-        {
-          "id": "fraud-risk-assessed",
-          "title": "Fraud risk assessed",
-          "description": "Fraud specialist has evaluated transaction signals and recorded a risk verdict.",
-          "requiredRoles": ["fraud"],
-          "policyRef": "policy.default"
-        },
-        {
-          "id": "decision-finalized",
-          "title": "Decision finalized",
-          "requiredRoles": ["risk"]
-        }
-      ]
-    },
-    "kickoff": [ /* ... */ ]
+  "scenarioMeta": {
+    "policyHints": { "type": "majority", "threshold": 0.5 },
+    "sessionContext": { "transactionAmount": 3200, "deviceTrustScore": 0.12 },
+    "initiatorParticipantId": "risk-agent"
   },
   "display": {
     "title": "High Value Purchase From New Device",
@@ -273,9 +270,20 @@ pre-allocated `sessionId` (UUID v4).
 }
 ```
 
-`session.commitments[]` — optional commitment definitions declared by the scenario. Each entry: `{ id, title, description?, requiredRoles?, policyRef? }`. The control plane uses these to populate `PolicyProjection.expectedCommitments` at `binding_session` time so UIs can render the expected commitment list before the first evaluation fires. Scenarios without commitments omit the field entirely.
+A scenario's `launch.commitments` block is **not** part of the compile output — it is
+parsed and checked by `scenario:validate` / `scenario:lint`, but nothing emits it to the control plane or
+the runtime. Likewise `launch.kickoffTemplate` surfaces only as `initiator.kickoff`
+(its first entry).
 
-**Errors:** `400 VALIDATION_ERROR | INVALID_SCENARIO_REF`, `404 SCENARIO_NOT_FOUND | VERSION_NOT_FOUND | TEMPLATE_NOT_FOUND`
+**Errors:**
+
+- `400 VALIDATION_ERROR` — inputs fail the scenario's JSON Schema; `metadata.errors` carries the ajv errors.
+- `400 COMPILATION_ERROR` — an undefined `{{ inputs.* }}` placeholder, or a `launch.extensions` value that is not a map of strings (`src/compiler/extensions.ts`).
+- `400 INVALID_SCENARIO_REF`
+- `404 PACK_NOT_FOUND | SCENARIO_NOT_FOUND | VERSION_NOT_FOUND | TEMPLATE_NOT_FOUND`
+- `500 INVALID_PACK_DATA` — a pack file on disk is malformed.
+
+A malformed request body (e.g. missing `scenarioRef`, or `mode` not `live`/`sandbox`) is a Nest `400` without `errorCode` — see [Error codes](#error-codes).
 
 ## Examples
 
@@ -307,15 +315,23 @@ whether `MACP_CONTROL_PLANE_URL` is set at deploy time.
 | `templateId` | string | _(none)_ | Template slug to apply |
 | `mode` | `live` \| `sandbox` | `sandbox` | Execution mode |
 | `inputs` | object | _(required)_ | User inputs, validated against scenario JSON Schema |
-| `bootstrapAgents` | boolean | `AUTO_BOOTSTRAP_EXAMPLE_AGENTS` | Resolve and bootstrap example agent bindings. When `false`, agents are not bootstrapped and the control plane is not called either. |
+| `bootstrapAgents` | boolean | `AUTO_BOOTSTRAP_EXAMPLE_AGENTS` | Resolve and bootstrap example agent bindings. When `false`, the response is just `{ compiled, hostedAgents: [] }` — no agents are spawned, no JWTs are minted, no top-level `sessionId`, and the control plane is not called. |
 | `tags` | string[] | _(none)_ | Additional tags merged into `execution.tags` |
 | `requester` | object | _(none)_ | Override `execution.requester` with `{ actorId, actorType }` |
-| `runLabel` | string | _(none)_ | Human-readable label stored in `session.metadata.runLabel` |
+| `runLabel` | string | _(none)_ | Human-readable label stored in `runDescriptor.session.metadata.runLabel` |
+
+Unknown body fields are silently dropped (`ValidationPipe` with `whitelist: true`), so
+e.g. a `submitToControlPlane` flag has no effect.
+
+When bootstrapping, agents are spawned **sequentially, initiator first** (only the
+initiator's `SessionStart` opens the session — `src/hosting/hosting.service.ts`), and each
+spawn is confirmed before the next starts. The CP-1 submission runs concurrently with the
+spawns. `hostedAgents` is still returned in scenario-declaration order.
 
 **Response:** `201`
 ```json
 {
-  "compiled": { "runDescriptor": { ... }, "executionRequest": { ... }, "display": { ... }, "participantBindings": [ ... ] },
+  "compiled": { "sessionId": "...", "mode": "sandbox", "runDescriptor": { ... }, "initiator": { ... }, "scenarioMeta": { ... }, "display": { ... }, "participantBindings": [ ... ] },
   "hostedAgents": [
     {
       "participantId": "fraud-agent",
@@ -328,7 +344,8 @@ whether `MACP_CONTROL_PLANE_URL` is set at deploy time.
       "entrypoint": "agents/langgraph_worker/main.py",
       "bootstrapStrategy": "external",
       "bootstrapMode": "attached",
-      "status": "resolved"
+      "status": "bootstrapped",
+      "participantMetadata": { "processAttached": true, "pid": 41237, "launchMode": "adapter", "adapterFramework": "langgraph" }
     }
   ],
   "sessionId": "7c7a8f4d-0d4d-4f2b-8a9e-1f3a6b2e0c11",
@@ -347,12 +364,55 @@ the control plane is unconfigured, unreachable, times out, or rejects the reques
 bootstrap and the HTTP response's own success are entirely unaffected either way — a
 control-plane failure never turns a successful run into an error response.
 
-**Errors:** `400 VALIDATION_ERROR | INVALID_SCENARIO_REF | AGENT_NOT_FOUND`, `502 AUTH_MINT_FAILED`, `500 INVALID_CONFIG`
+**Errors:** everything `POST /launch/compile` can return, plus `404 AGENT_NOT_FOUND`
+(a participant's `agentRef` is not in the example-agent catalog), `502 AUTH_MINT_FAILED`,
+`502 AGENT_ATTACH_FAILED`, `500 INVALID_CONFIG`.
 
-`AUTH_MINT_FAILED` surfaces when the per-agent JWT mint against the
-auth-service fails (non-2xx response or timeout). `INVALID_CONFIG` surfaces
-if `MACP_AUTH_SERVICE_URL` is not set at boot — the service fails startup,
-so this should only be seen in misconfigured environments.
+- `AUTH_MINT_FAILED` — the per-agent JWT mint against the auth-service failed (network
+  error, timeout, non-2xx, or no token in the body). There is no fallback; see
+  [`direct-agent-auth.md` § AUTH-2](direct-agent-auth.md#auth-2--on-demand-jwt-minting).
+- `AGENT_ATTACH_FAILED` — an agent with `bootstrapMode: "attached"` failed manifest
+  validation, failed to spawn, or exited before attach was confirmed
+  (`src/launch/example-run.service.ts`). `metadata` carries `sessionId` and
+  `failedParticipants`. Agents in `mock` / `deferred` mode report `status: "bootstrapped"` with
+  `processAttached: false` by design and never trigger it.
+- `INVALID_CONFIG` — no host adapter or manifest for an agent's framework. (A missing
+  `MACP_AUTH_SERVICE_URL` also raises `INVALID_CONFIG`, but at startup, so the service
+  never serves a request — see [`deployment.md`](deployment.md#environment-variables).)
+
+## Error codes
+
+Every error the service raises itself is an `AppException` with the JSON shape at the
+top of this page. Codes are defined in `src/errors/error-codes.ts`.
+
+| Code | HTTP | When |
+|------|------|------|
+| `PACK_NOT_FOUND` | 404 | Pack slug doesn't exist |
+| `SCENARIO_NOT_FOUND` | 404 | Scenario slug doesn't exist in the pack |
+| `VERSION_NOT_FOUND` | 404 | Version doesn't exist for the scenario |
+| `TEMPLATE_NOT_FOUND` | 404 | Template slug doesn't exist for the version |
+| `AGENT_NOT_FOUND` | 404 | `agentRef` not in the example-agent catalog |
+| `INVALID_SCENARIO_REF` | 400 | `scenarioRef` not in `pack/scenario@version` form |
+| `VALIDATION_ERROR` | 400 | Inputs fail the scenario's JSON Schema |
+| `COMPILATION_ERROR` | 400 | Undefined template placeholder, or malformed `launch.extensions` |
+| `INVALID_PACK_DATA` | 500 | A pack file on disk is malformed (bad `apiVersion`/`kind`/`metadata.slug`, bad `!include`). A server-side fault, so 500 — not 400 |
+| `INVALID_CONFIG` | 500 | Service misconfiguration (startup, or missing adapter/manifest at request time) |
+| `AUTH_MINT_FAILED` | 502 | Auth-service mint failed; no fallback |
+| `AGENT_ATTACH_FAILED` | 502 | An `attached`-mode agent failed to spawn or stay up |
+| `INTERNAL_ERROR` | 500 | Unhandled exception |
+
+`POLICY_NOT_FOUND`, `POLICY_REGISTRATION_FAILED` and `SESSION_ALREADY_EXISTS` exist in the
+enum but nothing throws them; no endpoint returns them today.
+
+**Errors without an `errorCode`.** Exceptions raised by Nest itself before a handler runs
+pass through `GlobalExceptionFilter` unchanged (`src/errors/exception.filter.ts`), so they
+keep Nest's shape:
+
+- Request-body DTO validation (`ValidationPipe`): `400` with `message` as an array of
+  strings and `"error": "Bad Request"`.
+- API key guard: `401` with `"error": "Unauthorized"`.
+- Rate limit: `429`, which — because the throttler's response is a plain string — is
+  emitted as `{ "statusCode": 429, "errorCode": "INTERNAL_ERROR", "message": "ThrottlerException: Too Many Requests" }`.
 
 ## Swagger UI
 

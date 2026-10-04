@@ -110,7 +110,7 @@ export class ExampleRunService {
    * unchecked here, /examples/run returned 201 even when a `mode: 'attached'`
    * agent never actually attached (PG-1). Only agents whose bootstrap mode
    * *requires* a real attach are held to this — `mock`/`deferred` agents
-   * report `status: 'resolved'` by design and must not trip this check.
+   * report `status: 'bootstrapped'` (`processAttached: false`) by design and must not trip this check.
    */
   private assertAllAgentsAttached(sessionId: string, hostedAgents: HostedExampleAgent[]): void {
     const failures = hostedAgents.filter(

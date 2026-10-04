@@ -9,7 +9,7 @@ A small developer-facing CLI that lets you scaffold, validate, dry-run, and lint
 From nothing to a validated, dry-run-proven scenario in three commands:
 
 ```bash
-npm run scenario:new demo my-sample
+npm run scenario:new -- demo my-sample
 $EDITOR packs/demo/scenarios/my-sample/1.0.0/scenario.yaml
 echo '{"sampleField":"hello"}' > /tmp/inputs.json
 npm run scenario:validate -- packs/demo/scenarios/my-sample/1.0.0/scenario.yaml
@@ -26,7 +26,7 @@ npm run scenario:dry-run -- 'demo/my-sample@1.0.0' --inputs /tmp/inputs.json
 npm run scenario:validate -- <path-to-scenario.yaml> [--packs-root <dir>]
 ```
 
-Loads a scenario file (resolving any `!include` tags), checks structure, compiles `inputs.schema` with the same AJV instance the HTTP path uses, validates every fixture under the scenario's `fixtures/` directory, walks every `{{ inputs.* }}` placeholder to confirm it's reachable from the schema or a fixture, and cross-checks every `participants[].agentRef` against the example-agent catalog.
+Loads a scenario file (resolving any `!include` tags), checks structure, compiles `inputs.schema` with the same AJV instance the HTTP path uses, validates every fixture under the scenario's `fixtures/` directory, walks every `{{ inputs.* }}` placeholder to confirm it's reachable from the schema or a fixture, and checks the shape of `launch.extensions` (scenario and template overrides — a mapping of base64 string values, [RFC-MACP-0001 §10.3](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/blob/main/rfcs/RFC-MACP-0001-core.md)), and cross-checks every `participants[].agentRef` against the example-agent catalog. Template defaults that fail the input schema (checked for templates that override `launch`), a template `kind` other than `ScenarioTemplate`, any template that overrides `commitments`, and a commitment with no `description` are reported as warnings.
 
 | Exit | Meaning |
 |---|---|
@@ -52,11 +52,11 @@ Example failure:
 npm run scenario:dry-run -- <scenarioRef> --inputs <file.json> [--template <slug>] [--mode live|sandbox] [--packs-root <dir>]
 ```
 
-Runs `CompilerService.compile()` offline against `<scenarioRef>` and `<file.json>` and prints the resulting `ExecutionRequest` as pretty JSON. This is the **same code path** as `POST /launch/compile`, so the output matches byte-for-byte (the integration tests assert this).
+Runs `CompilerService.compile()` offline against `<scenarioRef>` and `<file.json>` and prints the resulting `CompileLaunchResult` (`sessionId`, `mode`, `initiator`, `runDescriptor`, `scenarioMeta`, `display`, `participantBindings` — see [api-reference.md § `POST /launch/compile`](./api-reference.md#post-launchcompile)) as pretty JSON. This is the **same code path** as `POST /launch/compile`, so the output has the same shape and content — except `sessionId`, which is a fresh UUID v4 on every compile.
 
 | Exit | Meaning |
 |---|---|
-| `0` | Compile succeeded; ExecutionRequest printed to stdout. |
+| `0` | Compile succeeded; `CompileLaunchResult` printed to stdout. |
 | `1` | Validation failure, missing scenario, or other compile error. Error code printed to stderr. |
 
 ### `scenario:new`
@@ -96,13 +96,19 @@ npm run scenario:lint -- <target> [--packs-root <dir>]
 
 Static checks across one or more packs. Pass either a single pack directory (`packs/fraud`) or the packs root (`packs`).
 
-Rules:
+Errors:
+- `pack.yaml` must parse to a YAML mapping (an empty, comment-only, `---`-only, sequence or scalar file is reported, not crashed on).
 - Pack and scenario slugs are kebab-case.
-- Every commitment has a non-empty `description`.
-- `policyVersion` resolves to a file under `policies/` or to `policy.default`.
+- Every commitment has a non-empty string `description`.
+- `launch.extensions` (scenario and each template's `overrides.launch.extensions`) is a mapping of string values (base64 per RFC-MACP-0001 §10.3).
+- The policy named by `policyVersion` passes rules-schema validation (checked once per policy across the run, `policy.default` included) — see [policy-authoring.md](./policy-authoring.md).
 - Every `participants[].agentRef` exists in the example-agent catalog.
-- Templates whose `overrides.launch.commitments` array is shorter than the scenario's commitments emit a warning (arrays REPLACE entirely; partial = probably a mistake).
-- Files under `data/` that aren't referenced by any `!include` are flagged as orphans.
+- Any `scenario.yaml` or template that fails to load.
+
+Warnings:
+- `policyVersion` that is neither `policy.default` nor a file under `policies/`.
+- Templates whose `overrides.launch.commitments` array is shorter than the scenario's commitments (arrays REPLACE entirely; partial = probably a mistake).
+- Files under `data/` that aren't referenced by any `!include` (orphans).
 
 | Exit | Meaning |
 |---|---|
@@ -111,7 +117,7 @@ Rules:
 
 ## CI integration
 
-Add to `.github/workflows/ci.yml`:
+This repo's CI does **not** currently run either command. A suggested step, if you want it to:
 
 ```yaml
 - name: Lint scenario packs
