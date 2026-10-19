@@ -1,6 +1,6 @@
-# Full-stack real-LLM end-to-end harness (runtime 0.8.6; sibling services at :0.8.0).
+# Full-stack real-LLM end-to-end harness (runtime 0.9.0; sibling services at :0.8.0).
 #
-# Brings up the complete MACP stack on the runtime 0.8.6 release so the example
+# Brings up the complete MACP stack on the runtime 0.9.0 release so the example
 # agents (LangGraph / LangChain / CrewAI / custom) actually call a real LLM and
 # drive a decision session on the runtime, observed by the control-plane.
 #
@@ -8,18 +8,24 @@
 # them via the auth-service JWKS (issuer/audience must match). macp-playground
 # mints a per-agent JWT on every spawn; the control-plane mints an observer JWT.
 #
-# v0.5.0 note (still current at 0.8.6): the runtime image does not bake
+# v0.5.0 note (still current at 0.9.0): the runtime image does not bake
 # `MACP_ALLOW_INSECURE=1` and refuses to start without auth unless it is set
 # explicitly — we set it below (required for plaintext gRPC regardless of JWT
 # auth). The runtime also exposes a Prometheus text endpoint on
 # `MACP_METRICS_ADDR` (:9464 here).
 #
-# Runtime image tag: pinned to the released `:0.8.6` semver tag (immutable, multi-arch
-# linux/amd64 + linux/arm64). Upstream's release-plz now publishes `:X.Y.Z` / `:X.Y`
-# images (multiagentcoordinationprotocol/macp-runtime#184, fixed in v0.8.2). No `:0.8.0`
-# tag exists — v0.8.0 predates that fix, which is why this file previously pinned the
-# release commit's SHA tag `:f97fd15`. 0.8.1 → 0.8.6 carry no wire/proto change; see
-# the `runtime` service below for the two behaviours that did change.
+# Runtime image tag: pinned to the released `:0.9.0` semver tag (immutable, multi-arch
+# linux/amd64 + linux/arm64). Upstream's release-plz publishes `:X.Y.Z` / `:X.Y` images
+# (multiagentcoordinationprotocol/macp-runtime#184, fixed in v0.8.2). CI's
+# `runtime-policy-admission` job reads this exact tag, so bumping it here re-proves every
+# shipped policy against the new binary.
+#
+# 0.9.0 is a WIRE break, unlike 0.8.1 → 0.8.6: new sessions bind semantics_rev 4,
+# every gRPC Status carries its registry code in `macp-error-code` metadata, a denied
+# commitment carries structured `denials`, and the proto moves to macp-proto 0.1.11.
+# The SDKs this repo pins (macp-sdk-typescript 0.16 / macp-sdk-python 0.16) are the
+# releases that absorbed it. Upgrade notes:
+# https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/deployment.md#upgrading-to-090
 #
 # Prereqs:
 #   runtime      — pulled from ghcr (no local Rust build needed)
@@ -46,11 +52,17 @@ services:
       retries: 10
 
   runtime:
-    # Behaviour changes since v0.8.0 worth knowing: #192 (0.8.3) — multi_round Contribute
-    # decode tie-break, keyed on the session's semantics_rev (now 3); #208 (0.8.5) —
-    # SessionResumePayload.banked_ms is now the remaining TTL banked at suspend, not the
-    # pause duration (durable log only; Suspend/Resume/Cancel are never on StreamSession).
-    image: ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.8.6
+    # Behaviour changes in 0.9.0 that reach this harness (all Decision mode):
+    #   - semantics_rev 4 (new sessions only): Vote.vote / Evaluation.recommendation must be
+    #     UPPER_CASE exactly, and Objection.severity lowercase and non-empty — refusals are
+    #     INVALID_ENVELOPE. (Rev 4 also tightens Handoff rule 3a and Task rule 2a; no
+    #     scenario here uses those modes.)
+    #   - a denied commitment still NACKs with POLICY_DENIED, but its gRPC status is now
+    #     PERMISSION_DENIED (was FAILED_PRECONDITION) and it carries structured `denials`
+    #     ({code, message, participants}); veto messages no longer embed participant ids.
+    #   - registration refuses schema_version outside {1,2,3}, `rules.audit`, and any `x-`
+    #     vendor key (this binary registers no RuleExtension).
+    image: ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.9.0
     ports:
       - '50051:50051'
       # Prometheus text endpoint (v0.5.0+): curl http://localhost:9464/metrics
@@ -73,9 +85,13 @@ services:
       # 'false' on macp-playground below; the registrar then verifies presence
       # (managed_by_runtime) rather than mutating. See docs/policy-authoring.md
       # and src/policy/policy-registrar.service.ts.
+      #
+      # Run `npm run policies:stage` first and mount ITS output, never ./policies:
+      # ./policies holds policy.default.json, whose reserved id the runtime refuses
+      # (INVALID_POLICY_DEFINITION), and a preload rejection aborts startup.
       # MACP_POLICIES_DIR: /policies
     # volumes:
-    #   - ./policies:/policies:ro
+    #   - ./.policies-registrable:/policies:ro
     depends_on:
       auth-service:
         condition: service_healthy

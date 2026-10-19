@@ -100,6 +100,83 @@ jobs:
         env:
           INTEGRATION_CONTROL_PLANE: mock
 
+  # Proves the shipped policies are admissible by the REAL runtime binary, not only by the
+  # vendored-schema mirror in `PolicyRulesValidator` (which can be neither looser nor stricter
+  # than the runtime only for as long as someone keeps re-vendoring it). `MACP_POLICIES_DRY_RUN=1`
+  # makes the runtime run its full registration path over `MACP_POLICIES_DIR` and exit 0/1
+  # without serving. The image tag is read from `docker-compose.fullstack.yml`, so this gate and
+  # the full-stack harness cannot drift apart; the staging script is the same one the compose
+  # file's read-only registry variant uses, so the set proven here is the set that variant mounts.
+  runtime-policy-admission:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@multiagentcoordinationprotocol'
+          cache: npm
+      - run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve the runtime image pinned by the full-stack harness
+        id: runtime
+        run: |
+          set -euo pipefail
+          image="$(grep -oE 'ghcr\.io/multiagentcoordinationprotocol/macp-runtime:[^[:space:]]+' docker-compose.fullstack.yml | sort -u)"
+          if [ "$(printf '%s\n' "$image" | grep -c .)" != 1 ]; then
+            echo "::error::expected exactly one macp-runtime image in docker-compose.fullstack.yml, found: $image"
+            exit 1
+          fi
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          docker pull -q "$image"
+      - name: Dry-run the registrable policy set (gate)
+        run: |
+          set -euo pipefail
+          npm run -s policies:stage -- "$RUNNER_TEMP/policies"
+          docker run --rm -e MACP_POLICIES_DRY_RUN=1 -e MACP_POLICIES_DIR=/p \
+            -v "$RUNNER_TEMP/policies:/p:ro" '${{ steps.runtime.outputs.image }}'
+      # A gate that cannot fail is not a gate. Each case adds ONE policy to the staged set and
+      # asserts the runtime's verdict on that file by its exact reason, not merely the exit code:
+      # a malformed fixture (e.g. a missing `description`) is also rejected, and would otherwise
+      # green a negative case for the wrong reason. The `control` case is the shared base with
+      # nothing wrong, proving the base itself is admissible.
+      - name: Dry-run verdicts on crafted policies (negative cases + control)
+        run: |
+          set -euo pipefail
+          base='"description":"ci admission case","mode":"macp.mode.decision.v1","rules":{"voting":{"algorithm":"majority","threshold":0.5}'
+          check() { # <name> <policy-json> <expected line prefix for neg.json>
+            dir="$RUNNER_TEMP/case-$1"
+            npm run -s policies:stage -- "$dir"
+            printf '%s' "$2" > "$dir/neg.json"
+            out="$(docker run --rm -e MACP_POLICIES_DRY_RUN=1 -e MACP_POLICIES_DIR=/p \
+                     -v "$dir:/p:ro" '${{ steps.runtime.outputs.image }}' 2>&1)" && rc=0 || rc=$?
+            echo "$out"
+            line="$(printf '%s\n' "$out" | grep -F '/p/neg.json' || true)"
+            case "$line" in
+              "$3"*) echo "verdict as expected: $1 (exit $rc)" ;;
+              *) echo "::error::$1: expected a line starting '$3', got '$line'"; return 1 ;;
+            esac
+            case "$3" in
+              OK*) [ "$rc" = 0 ] || { echo "::error::$1: admitted but the dry run exited $rc"; return 1; } ;;
+              *) [ "$rc" != 0 ] || { echo "::error::$1: rejected but the dry run exited 0"; return 1; } ;;
+            esac
+          }
+          check control     '{"policy_id":"ci.control","schema_version":3,'"$base"'}}' \
+            'OK       /p/neg.json'
+          check unknown-key '{"policy_id":"ci.neg.unknown-key","schema_version":3,'"$base"',"not_a_rule":{}}}' \
+            'REJECTED /p/neg.json: INVALID_POLICY_DEFINITION: rules.not_a_rule is not a defined key'
+          check audit-block '{"policy_id":"ci.neg.audit","schema_version":3,'"$base"',"audit":{"level":"info"}}}' \
+            'REJECTED /p/neg.json: INVALID_POLICY_DEFINITION: rules.audit is not a defined key'
+          check schema-v4   '{"policy_id":"ci.neg.schema-v4","schema_version":4,'"$base"'}}' \
+            'REJECTED /p/neg.json: INVALID_POLICY_DEFINITION: schema_version 4 is not supported'
+          check vendor-key  '{"policy_id":"ci.neg.vendor-key","schema_version":3,'"$base"',"x-com.example.gov":{}}}' \
+            'REJECTED /p/neg.json: INVALID_POLICY_DEFINITION: rules.x-com.example.gov is not a defined key'
+
   python:
     runs-on: ubuntu-latest
     permissions:

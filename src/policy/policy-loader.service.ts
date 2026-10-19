@@ -13,6 +13,14 @@ import { PolicyRulesValidator } from './policy-rules-validator';
  */
 const MAX_SUPPORTED_SCHEMA_VERSION = 3;
 
+/**
+ * The runtime's built-in fallback policy. The runtime refuses to register it
+ * (`INVALID_POLICY_DEFINITION: cannot register with reserved policy_id`), and a
+ * read-only registry (`MACP_POLICIES_DIR`) that preloads it aborts startup. Shared
+ * with `scripts/policies-stage.ts`, which stages the directory such a registry mounts.
+ */
+export const RESERVED_POLICY_ID = 'policy.default';
+
 @Injectable()
 export class PolicyLoaderService {
   private readonly logger = new Logger(PolicyLoaderService.name);
@@ -40,7 +48,7 @@ export class PolicyLoaderService {
   }
 
   listRegistrablePolicies(): PolicyDefinition[] {
-    return this.listAvailablePolicies().filter((p) => p.policy_id !== 'policy.default');
+    return this.listAvailablePolicies().filter((p) => p.policy_id !== RESERVED_POLICY_ID);
   }
 
   validatePolicy(policy: PolicyDefinition): string[] {
