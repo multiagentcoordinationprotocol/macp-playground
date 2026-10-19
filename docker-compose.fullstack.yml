@@ -20,7 +20,7 @@
 # `runtime-policy-admission` job reads this exact tag, so bumping it here re-proves every
 # shipped policy against the new binary.
 #
-# 0.9.0 is a WIRE break, unlike 0.8.1 → 0.8.6: new sessions bind semantics_rev 4,
+# 0.9.0 is a WIRE break, unlike the 0.8.x patch series: new sessions bind semantics_rev 4,
 # every gRPC Status carries its registry code in `macp-error-code` metadata, a denied
 # commitment carries structured `denials`, and the proto moves to macp-proto 0.1.11.
 # The SDKs this repo pins (macp-sdk-typescript 0.16 / macp-sdk-python 0.16) are the

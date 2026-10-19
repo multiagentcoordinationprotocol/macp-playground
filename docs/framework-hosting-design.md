@@ -188,7 +188,8 @@ enforce `rules.commitment.authority`/`designated_roles`, despite
 `PolicyHints.designatedRoles` existing on the type. Commitment authority is
 enforced solely by the **runtime**, against `policy.rules.commitment` on the
 registered descriptor; a commit the runtime disallows comes back
-`POLICY_DENIED` regardless of what the local strategy decided. See
+`POLICY_DENIED` (gRPC status `PERMISSION_DENIED` since runtime 0.9.0, with
+structured `denials`) regardless of what the local strategy decided. See
 `docs/policy-authoring.md`'s designated-role callouts for the full picture,
 including why `policyHints.designatedRoles` and
 `rules.commitment.designated_roles` are unrelated fields despite the similar
