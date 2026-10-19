@@ -226,6 +226,51 @@ describe('risk-decider.worker (SDK Participant)', () => {
     );
   });
 
+  it('records structured denial codes (runtime >= 0.9.0) in the cancel reason', async () => {
+    mockLoadBootstrap.mockReturnValue(defaultBootstrap());
+    await runWorker();
+    await jest.advanceTimersByTimeAsync(10);
+
+    // MacpAckError shape from macp-sdk-typescript >= 0.15: the NACK code stays POLICY_DENIED
+    // (only the transport status became PERMISSION_DENIED) and `failure.denials` carries the
+    // structured reasons. Since 0.9.0 a veto's participants live only in `participants`.
+    const denied = Object.assign(new Error('POLICY_DENIED: commitment denied by policy'), {
+      macpErrorCode: 'POLICY_DENIED',
+      failure: {
+        code: 'POLICY_DENIED',
+        denials: [
+          { code: 'confidence_below_minimum', message: 'no qualifying evaluation meets 0.70', participants: [] },
+          { code: 'veto', message: 'blocked by 1 blocking objection(s)', participants: ['agent://compliance'] }
+        ]
+      }
+    });
+    await driveToCommit(jest.fn().mockRejectedValue(denied));
+
+    expect(mockCancelSession).toHaveBeenCalledTimes(1);
+    expect(mockCancelSession).toHaveBeenCalledWith(
+      'sess-uuid-v4',
+      'commitment rejected by runtime: POLICY_DENIED: commitment denied by policy [denials: confidence_below_minimum, veto]',
+      expect.objectContaining({ auth: mockAuth, cancelledBy: 'risk-coordinator' })
+    );
+  });
+
+  it('keeps the pre-0.9.0 cancel reason, unchanged, when the error carries no denials', async () => {
+    mockLoadBootstrap.mockReturnValue(defaultBootstrap());
+    await runWorker();
+    await jest.advanceTimersByTimeAsync(10);
+
+    const legacy = Object.assign(new Error('POLICY_DENIED: PolicyDenied'), {
+      failure: { code: 'POLICY_DENIED', denials: [] }
+    });
+    await driveToCommit(jest.fn().mockRejectedValue(legacy));
+
+    expect(mockCancelSession).toHaveBeenCalledWith(
+      'sess-uuid-v4',
+      'commitment rejected by runtime: POLICY_DENIED: PolicyDenied',
+      expect.anything()
+    );
+  });
+
   it('does not cancel the session when the commit is accepted', async () => {
     mockLoadBootstrap.mockReturnValue(defaultBootstrap());
     await runWorker();

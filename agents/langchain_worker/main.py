@@ -20,12 +20,20 @@ from mappers import extract_agent_metadata, map_kickoff_to_inputs
 
 logger = logging.getLogger("macp.agent")
 
-_TERMINAL_ACK_CODES = ("SESSION_NOT_OPEN", "UNKNOWN_SESSION", "TTL_EXPIRED")
+# Registry codes (macp-runtime `MacpError::error_code`) meaning "this session no longer takes
+# messages": an expired TTL is reported as SESSION_NOT_OPEN, an unknown session as
+# SESSION_NOT_FOUND. (UNKNOWN_SESSION / TTL_EXPIRED are runtime enum names, never wire codes.)
+_SESSION_CLOSED_CODES = frozenset({"SESSION_NOT_OPEN", "SESSION_NOT_FOUND"})
 
 
 def _is_session_closed(err: MacpAckError) -> bool:
+    failure = getattr(err, "failure", None)
+    code = getattr(err, "macp_code", None) or getattr(failure, "code", None)
+    if code:
+        return code in _SESSION_CLOSED_CODES
+    # No structured code at all: fall back to the message text.
     msg = str(err).upper()
-    return any(code in msg for code in _TERMINAL_ACK_CODES)
+    return any(c in msg for c in _SESSION_CLOSED_CODES)
 
 
 def _eval_recommendation(recommendation: str) -> str:
