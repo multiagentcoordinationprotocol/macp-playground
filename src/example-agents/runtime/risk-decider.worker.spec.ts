@@ -201,6 +201,22 @@ describe('risk-decider.worker (SDK Participant)', () => {
     process.exitCode = originalExitCode;
   });
 
+  // semantics_rev 4 (runtime 0.9.0): Decision votes are case-exact on the wire; a
+  // lower-case vote is INVALID_ENVELOPE. The strategy's own decision stays lower-case.
+  it.each([
+    ['approve', driveToCommit, 'APPROVE'],
+    ['decline', driveToDecline, 'REJECT']
+  ])('sends a %s vote as the upper-case enum %s', async (_label, drive, expected) => {
+    mockLoadBootstrap.mockReturnValue(defaultBootstrap());
+    await runWorker();
+    await jest.advanceTimersByTimeAsync(10);
+
+    const { vote } = await drive(jest.fn().mockResolvedValue(undefined));
+
+    expect(vote).toHaveBeenCalledTimes(1);
+    expect(vote).toHaveBeenCalledWith(expect.objectContaining({ vote: expected }));
+  });
+
   it('cancels the session on a genuine denial (runtime rejects the commit with POLICY_DENIED)', async () => {
     mockLoadBootstrap.mockReturnValue(defaultBootstrap());
     await runWorker();
