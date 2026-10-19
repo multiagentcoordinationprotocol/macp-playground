@@ -12,6 +12,22 @@ const MODE_SCHEMA_FILES: Record<string, string> = {
 
 const WILDCARD_MODE = '*';
 
+// RFC-MACP-0012 §4 vendor-extension keys. The vendored schemas (spec 60262b8) admit them at the
+// rules root, but only a runtime that registers a matching RuleExtension may accept one — and the
+// macp-runtime server binary registers none, so it refuses every `x-` key at registration
+// (INVALID_POLICY_DEFINITION "this runtime implements no vendor extension"). Refusing here keeps
+// this validator from passing a policy the target runtime is certain to reject.
+const VENDOR_KEY_PREFIX = 'x-';
+
+function vendorKeyErrors(rules: unknown): string[] {
+  if (typeof rules !== 'object' || rules === null || Array.isArray(rules)) {
+    return [];
+  }
+  return Object.keys(rules)
+    .filter((key) => key.startsWith(VENDOR_KEY_PREFIX))
+    .map((key) => `(root): vendor-extension key "${key}" is not supported by the target runtime`);
+}
+
 function loadSchema(schemasDir: string, filename: string): object {
   const raw = fs.readFileSync(path.join(schemasDir, filename), 'utf-8');
   return JSON.parse(raw) as object;
@@ -80,15 +96,16 @@ export class PolicyRulesValidator {
 
   /** Validates a `rules` object against the rule schema for the given mode. */
   validateRules(mode: string, rules: unknown): string[] {
+    const vendorErrors = vendorKeyErrors(rules);
     if (mode === WILDCARD_MODE) {
-      return this.validateWildcardRules(rules);
+      return [...vendorErrors, ...this.validateWildcardRules(rules)];
     }
     const validate = this.ruleValidators.get(mode);
     if (!validate) {
       return [`mode "${mode}": no vendored rule schema is registered for it, cannot validate`];
     }
     const valid = validate(rules);
-    return valid ? [] : formatErrors(validate.errors);
+    return valid ? vendorErrors : [...vendorErrors, ...formatErrors(validate.errors)];
   }
 
   /**
@@ -112,7 +129,7 @@ export class PolicyRulesValidator {
    * So this validates **per top-level key**, not per whole object: each key present in
    * `rules` is checked against every mode whose schema declares it (topLevelKeyOwners,
    * built at construction time), and passes if it's valid against *at least one* of them —
-   * "legitimate under some mode this wildcard could bind to." A key no schema declares at
+   * "legitimate under some mode this wildcard could bind to." A key no schema admits at
    * all is a real, unconditional error.
    *
    * Each candidate mode's check runs the key's value through that mode's **full** rules
@@ -150,11 +167,13 @@ export class PolicyRulesValidator {
 
     const errors: string[] = [];
     for (const [key, value] of Object.entries(rules as Record<string, unknown>)) {
-      const owners = this.topLevelKeyOwners.get(key);
-      if (!owners || owners.length === 0) {
-        errors.push(`(root): unrecognized key "${key}"`);
-        continue;
+      if (key.startsWith(VENDOR_KEY_PREFIX)) {
+        continue; // refused by vendorKeyErrors() in validateRules()
       }
+      // A key no mode declares under `properties` may still be admitted by a schema's
+      // `patternProperties` (the `^[_$]` annotation escape every mode shares), so it is tried
+      // against every mode; a genuinely unknown key still fails all five with "unrecognized key".
+      const owners = this.topLevelKeyOwners.get(key) ?? [...this.ruleValidators.keys()];
 
       const sparseRules = { [key]: value };
       let acceptedByAtLeastOneMode = false;
