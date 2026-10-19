@@ -206,6 +206,32 @@ describe('PolicyRegistrarService', () => {
     expect(getPolicyMock).toHaveBeenCalledTimes(2);
   });
 
+  it('switches to verification on macpErrorCode REGISTRY_READ_ONLY even when the message says nothing about read-only', async () => {
+    const { service } = buildService({ policies: [claimsPolicy, fraudPolicy] });
+    // Runtime >= 0.9.0 shape: the SDK keeps failure.code FAILED_PRECONDITION but names the
+    // registry code; the message text is deliberately free of every fallback substring.
+    const err = Object.assign(new Error('registry mutation refused'), { macpErrorCode: 'REGISTRY_READ_ONLY' });
+    registerPolicyMock.mockRejectedValueOnce(err);
+    getPolicyMock.mockImplementation((policyId: string) => Promise.resolve({ policyId, schemaVersion: 3 }));
+
+    await service.onApplicationBootstrap();
+
+    expect(registerPolicyMock).toHaveBeenCalledTimes(1);
+    expect(getPolicyMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('treats a non-read-only macpErrorCode as a failure even if the message matches a fallback substring', async () => {
+    const { service } = buildService({ policies: [claimsPolicy] });
+    const err = Object.assign(new Error('FAILED_PRECONDITION: read-only something'), {
+      macpErrorCode: 'UNAUTHENTICATED'
+    });
+    registerPolicyMock.mockRejectedValueOnce(err);
+
+    await service.onApplicationBootstrap();
+
+    expect(getPolicyMock).not.toHaveBeenCalled();
+  });
+
   it('logs missing policies (ERROR) when read-only and getPolicy rejects NOT_FOUND', async () => {
     const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     const { service } = buildService({ policies: [claimsPolicy, fraudPolicy] });

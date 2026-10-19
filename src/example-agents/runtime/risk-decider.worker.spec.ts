@@ -201,6 +201,22 @@ describe('risk-decider.worker (SDK Participant)', () => {
     process.exitCode = originalExitCode;
   });
 
+  // semantics_rev 4 (runtime 0.9.0): Decision votes are case-exact on the wire; a
+  // lower-case vote is INVALID_ENVELOPE. The strategy's own decision stays lower-case.
+  it.each([
+    ['approve', driveToCommit, 'APPROVE'],
+    ['decline', driveToDecline, 'REJECT']
+  ])('sends a %s vote as the upper-case enum %s', async (_label, drive, expected) => {
+    mockLoadBootstrap.mockReturnValue(defaultBootstrap());
+    await runWorker();
+    await jest.advanceTimersByTimeAsync(10);
+
+    const { vote } = await drive(jest.fn().mockResolvedValue(undefined));
+
+    expect(vote).toHaveBeenCalledTimes(1);
+    expect(vote).toHaveBeenCalledWith(expect.objectContaining({ vote: expected }));
+  });
+
   it('cancels the session on a genuine denial (runtime rejects the commit with POLICY_DENIED)', async () => {
     mockLoadBootstrap.mockReturnValue(defaultBootstrap());
     await runWorker();
@@ -223,6 +239,51 @@ describe('risk-decider.worker (SDK Participant)', () => {
       'sess-uuid-v4',
       expect.stringContaining('POLICY_DENIED'),
       expect.objectContaining({ auth: mockAuth, cancelledBy: 'risk-coordinator' })
+    );
+  });
+
+  it('records structured denial codes (runtime >= 0.9.0) in the cancel reason', async () => {
+    mockLoadBootstrap.mockReturnValue(defaultBootstrap());
+    await runWorker();
+    await jest.advanceTimersByTimeAsync(10);
+
+    // MacpAckError shape from macp-sdk-typescript >= 0.15: the NACK code stays POLICY_DENIED
+    // (only the transport status became PERMISSION_DENIED) and `failure.denials` carries the
+    // structured reasons. Since 0.9.0 a veto's participants live only in `participants`.
+    const denied = Object.assign(new Error('POLICY_DENIED: commitment denied by policy'), {
+      macpErrorCode: 'POLICY_DENIED',
+      failure: {
+        code: 'POLICY_DENIED',
+        denials: [
+          { code: 'confidence_below_minimum', message: 'no qualifying evaluation meets 0.70', participants: [] },
+          { code: 'veto', message: 'blocked by 1 blocking objection(s)', participants: ['agent://compliance'] }
+        ]
+      }
+    });
+    await driveToCommit(jest.fn().mockRejectedValue(denied));
+
+    expect(mockCancelSession).toHaveBeenCalledTimes(1);
+    expect(mockCancelSession).toHaveBeenCalledWith(
+      'sess-uuid-v4',
+      'commitment rejected by runtime: POLICY_DENIED: commitment denied by policy [denials: confidence_below_minimum, veto]',
+      expect.objectContaining({ auth: mockAuth, cancelledBy: 'risk-coordinator' })
+    );
+  });
+
+  it('keeps the pre-0.9.0 cancel reason, unchanged, when the error carries no denials', async () => {
+    mockLoadBootstrap.mockReturnValue(defaultBootstrap());
+    await runWorker();
+    await jest.advanceTimersByTimeAsync(10);
+
+    const legacy = Object.assign(new Error('POLICY_DENIED: PolicyDenied'), {
+      failure: { code: 'POLICY_DENIED', denials: [] }
+    });
+    await driveToCommit(jest.fn().mockRejectedValue(legacy));
+
+    expect(mockCancelSession).toHaveBeenCalledWith(
+      'sess-uuid-v4',
+      'commitment rejected by runtime: POLICY_DENIED: PolicyDenied',
+      expect.anything()
     );
   });
 

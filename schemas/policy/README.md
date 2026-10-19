@@ -14,7 +14,13 @@ on a sibling checkout existing.
 | `handoff-rules.schema.json` | `schemas/json/policy/handoff-rules.schema.json` |
 | `policy-descriptor.schema.json` | `schemas/json/macp-policy-descriptor.schema.json` (note: one directory level up from the 5 rule schemas above, and renamed here for a consistent `*-*.schema.json` naming convention) |
 
-Vendored at commit `579d49b82aff2c8441ab5dfcbd22d62666471b0a`.
+Vendored at commit `60262b8f9ac487784f82a28bb85614cbe2e9f30b`.
+
+That revision admits RFC-MACP-0012 §4 vendor-extension keys (`x-<reverse.domain>`, object-valued,
+rules root only) in all five rule schemas. `PolicyRulesValidator` nonetheless **refuses** every
+top-level `x-` key: only a runtime that registers a matching `RuleExtension` may accept one, and
+the macp-runtime server binary (0.9.0) registers none, so registration would fail with
+`INVALID_POLICY_DEFINITION`. Drop that refusal only once the target runtime implements the key.
 
 ## Re-syncing
 

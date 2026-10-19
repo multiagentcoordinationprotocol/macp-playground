@@ -19,6 +19,59 @@ function log(msg: string, details?: Record<string, unknown>): void {
   logAgent(`[risk-decider] ${msg}`, details);
 }
 
+interface CommitFailure {
+  message: string;
+  /** NACK code (`failure.code`, e.g. `POLICY_DENIED`) when the SDK raised a `MacpAckError`. */
+  code?: string;
+  /** Registry code from `macp-error-code` metadata (runtime ≥ 0.9.0), when present. */
+  macpErrorCode?: string;
+  /** Structured RFC-MACP-0012 §6.2 denial reasons (runtime ≥ 0.9.0); empty before 0.9.0. */
+  denials: Array<{ code: string; message: string; participants: string[] }>;
+}
+
+/**
+ * Pull the machine-readable cause out of a rejected commit. Read structurally (not via
+ * `instanceof MacpAckError`) so it holds across duplicate SDK copies; anything missing
+ * degrades to the plain message, which is all a pre-0.9.0 runtime provides.
+ */
+function describeCommitFailure(error: unknown): CommitFailure {
+  const message = error instanceof Error ? error.message : String(error);
+  if (typeof error !== 'object' || error === null) return { message, denials: [] };
+  const { failure, macpErrorCode } = error as {
+    failure?: { code?: unknown; denials?: unknown };
+    macpErrorCode?: unknown;
+  };
+  const denials = Array.isArray(failure?.denials)
+    ? (failure.denials as unknown[])
+        .filter((d): d is Record<string, unknown> => typeof d === 'object' && d !== null)
+        .map((d) => ({
+          code: typeof d.code === 'string' && d.code ? d.code : 'unspecified',
+          message: typeof d.message === 'string' ? d.message : '',
+          participants: Array.isArray(d.participants)
+            ? d.participants.filter((p): p is string => typeof p === 'string')
+            : []
+        }))
+    : [];
+  return {
+    message,
+    code: typeof failure?.code === 'string' ? failure.code : undefined,
+    macpErrorCode: typeof macpErrorCode === 'string' ? macpErrorCode : undefined,
+    denials
+  };
+}
+
+/**
+ * The cancel reason a denied commit leaves on the CANCELLED session. Unchanged from the
+ * pre-0.9.0 text when there are no structured denials; otherwise the denial codes are
+ * appended so the control-plane observer's run keeps a machine-readable cause (since
+ * 0.9.0 a veto's participants are no longer embedded in the message text).
+ */
+function commitRejectionReason(failure: CommitFailure): string {
+  const base = `commitment rejected by runtime: ${failure.message}`;
+  if (failure.denials.length === 0) return base;
+  return `${base} [denials: ${failure.denials.map((d) => d.code).join(', ')}]`;
+}
+
 function inferOutcomePositive(action: string): boolean {
   return action !== 'decline';
 }
@@ -304,8 +357,13 @@ async function main(): Promise<void> {
       });
       log('commitment sent', { proposalId, action: decision.action });
     } catch (commitError) {
-      const message = commitError instanceof Error ? commitError.message : String(commitError);
-      log('commitment send failed', { error: message });
+      const failure = describeCommitFailure(commitError);
+      log('commitment send failed', {
+        error: failure.message,
+        code: failure.code,
+        macpErrorCode: failure.macpErrorCode,
+        denials: failure.denials
+      });
 
       // The runtime's policy engine can reject a commit (RFC-MACP-0012) — e.g.
       // votes short of quorum or evaluations under the confidence floor. Note the
@@ -317,8 +375,10 @@ async function main(): Promise<void> {
       // commit leaves no terminal commitment, so the session would otherwise linger
       // until TTL expiry. Drive it to an explicit terminal CANCELLED state (proto
       // 0.1.3 / macp-sdk-typescript 0.4.0) instead, so observers see a deterministic
-      // outcome distinct from TTL EXPIRED.
-      await cancelSessionSafely(`commitment rejected by runtime: ${message}`);
+      // outcome distinct from TTL EXPIRED. Since runtime 0.9.0 the denial also carries
+      // structured `denials` (and its gRPC status became PERMISSION_DENIED; the NACK code
+      // is still POLICY_DENIED), whose codes the cancel reason now records.
+      await cancelSessionSafely(commitRejectionReason(failure));
     }
   }
 

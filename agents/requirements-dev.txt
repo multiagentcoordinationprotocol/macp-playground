@@ -3,3 +3,8 @@
 # mapper modules so CI stays fast and dependency-light.
 pytest>=9.1.1,<10
 ruff>=0.16.9,<1
+# The SDK (not a framework: grpcio + protobuf + macp-proto) so tests/test_worker_wire.py can
+# drive each worker's real handlers against real MacpAckError/AckFailure objects. Its version
+# comes from constraints.txt, so the tests exercise exactly the SDK the image ships.
+-c constraints.txt
+macp-sdk-python

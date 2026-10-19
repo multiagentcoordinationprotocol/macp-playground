@@ -22,7 +22,7 @@
 # then emit `name==version` for every entry of the report's `install` array.
 #
 # Regenerate whenever requirements.txt changes. Note this pins macp-sdk-python
-# exactly, so a new patch release inside its `>=0.9.1,<0.10` range needs a
+# exactly, so a new patch release inside its `>=0.16.0,<0.17` range needs a
 # regeneration to be picked up — that is the intended trade for reproducibility.
 #
 # Generated against: Python 3.13.5, Debian 13.7 (trixie), node:26-slim.
@@ -107,8 +107,8 @@ langgraph-prebuilt==1.1.0
 langgraph-sdk==0.4.5
 langsmith==0.14.2
 litellm==1.74.9
-macp-proto==0.1.10
-macp-sdk-python==0.14.1
+macp-proto==0.1.11
+macp-sdk-python==0.16.0
 markdown-it-py==4.2.0
 MarkupSafe==3.0.3
 matplotlib-inline==0.2.2

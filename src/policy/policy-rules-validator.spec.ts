@@ -193,6 +193,50 @@ describe('PolicyRulesValidator', () => {
     expect(validator.validateRules('*', supermajorityWithoutThreshold).length).toBeGreaterThan(0);
   });
 
+  describe('vendor-extension (x-) keys — admitted by spec 60262b8, refused by the runtime binary', () => {
+    const VENDOR_ERROR = '(root): vendor-extension key "x-com.example.gov" is not supported by the target runtime';
+    const MODES = [
+      'macp.mode.decision.v1',
+      'macp.mode.quorum.v1',
+      'macp.mode.proposal.v1',
+      'macp.mode.task.v1',
+      'macp.mode.handoff.v1',
+      '*'
+    ];
+
+    it.each(MODES)('%s: a well-formed top-level x- key the schema admits is still refused, by name', (mode) => {
+      const errors = validator.validateRules(mode, { 'x-com.example.gov': { level: 2 } });
+      expect(errors).toEqual([VENDOR_ERROR]);
+    });
+
+    it.each(MODES)('%s: an annotation key beside it is still accepted', (mode) => {
+      expect(validator.validateRules(mode, { _note: 'annotation', $comment: 'annotation' })).toEqual([]);
+    });
+
+    it('is reported alongside, not instead of, ordinary schema errors', () => {
+      const errors = validator.validateRules('macp.mode.decision.v1', {
+        ...GOOD_DECISION_RULES,
+        'x-com.example.gov': {},
+        not_a_rule: true
+      });
+      expect(errors).toContain(VENDOR_ERROR);
+      expect(errors).toContain('(root): unrecognized key "not_a_rule"');
+    });
+
+    it('a nested x- key is refused by the schema itself (vendor keys are legal at the rules root only)', () => {
+      const nested = {
+        ...GOOD_DECISION_RULES,
+        objection_handling: { ...GOOD_DECISION_RULES.objection_handling, 'x-com.example.gov': {} }
+      };
+      expect(validator.validateRules('macp.mode.decision.v1', nested)).toEqual([
+        '/objection_handling: unrecognized key "x-com.example.gov"'
+      ]);
+      expect(validator.validateRules('*', nested)).toEqual([
+        '/objection_handling: unrecognized key "x-com.example.gov"'
+      ]);
+    });
+  });
+
   it('returns an explicit "unknown mode" error rather than silently passing for an unrecognized mode', () => {
     const errors = validator.validateRules('macp.mode.made-up.v1', GOOD_DECISION_RULES);
     expect(errors.length).toBeGreaterThan(0);

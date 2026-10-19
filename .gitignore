@@ -57,3 +57,5 @@ CLAUDE.md
 .env
 
 .macp-data/
+# Staged registrable policies for the read-only registry variant (npm run policies:stage)
+.policies-registrable/

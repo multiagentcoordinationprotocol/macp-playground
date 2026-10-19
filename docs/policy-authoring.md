@@ -50,10 +50,22 @@ places:
 - **Load time** — `PolicyLoaderService` logs non-blocking warnings (see
   [Local validation warnings](#local-validation-warnings)).
 
+Two keys the runtime refuses at registration even though they look legitimate
+(runtime 0.9.0, `INVALID_POLICY_DEFINITION`):
+
+- **Vendor-extension keys** (`x-<reverse.domain>`, e.g. `x-com.example.gov`).
+  The vendored schemas admit them at the rules root (RFC-MACP-0012 §4), but a
+  runtime may accept one only if it registers a matching extension, and the
+  runtime binary registers none. `PolicyRulesValidator` refuses them by name
+  ("vendor-extension key … is not supported by the target runtime") so lint
+  fails before registration does.
+- **`rules.audit`** — audit is runtime configuration, not policy. Use the
+  runtime's `MACP_AUDIT_*` environment variables instead.
+
 Two exceptions to the closed-key rule:
 
 - **Annotation keys** — any key matching `^[_$]` (e.g. `$comment`, `_note`)
-  is legal at every nesting level, for documenting a rule block inline
+  is legal at every nesting level (including a wildcard policy's rules root), for documenting a rule block inline
   without the schema rejecting it.
 - **`voting.weights`** — its **keys** are open (they're participant IDs,
   not fixed field names), but its **values** are still constrained
@@ -191,13 +203,18 @@ Flow (`src/policy/policy-registrar.service.ts`):
    local `schema_version`).
 
 **Read-only registry.** A runtime started with `MACP_POLICIES_DIR`
-owns its registry from disk and rejects `RegisterPolicy` with
-`FAILED_PRECONDITION`. The registrar detects this on the first rejection,
+owns its registry from disk and rejects `RegisterPolicy` with gRPC status
+`FAILED_PRECONDITION` and registry code `REGISTRY_READ_ONLY`. The registrar
+keys on that code (falling back to the message text only when a NACK carries
+no code, since `FAILED_PRECONDITION` alone is ambiguous) and detects this on
+the first rejection,
 **stops mutating**, and switches to **verification**: it calls `getPolicy` for
 each required policy, counts `managed_by_runtime` vs `missing`, and logs any
 missing policy at ERROR with the `<policy_id>.json` file to mount into the
-runtime's policies dir. For this deployment shape, mount `./policies` into the
-runtime and set `REGISTER_POLICIES_ON_LAUNCH=false` to skip the probe entirely
+runtime's policies dir. For this deployment shape, stage the registrable
+policies with `npm run policies:stage` (which leaves out `policy.default`, an id
+the runtime reserves and refuses to load), mount `./.policies-registrable` into
+the runtime, and set `REGISTER_POLICIES_ON_LAUNCH=false` to skip the probe entirely
 (see [`deployment.md`](deployment.md) § Read-only registry).
 
 Registration is skipped (never an error) when:
@@ -223,11 +240,19 @@ and may reject it with `POLICY_DENIED`, e.g.:
 - `"majority vote failed: 25.0% approve, need >= 50.0%"`
 - `"no qualifying evaluation meets minimum confidence threshold: 0.60"`
 
+Since runtime 0.9.0 the NACK's gRPC status is `PERMISSION_DENIED`, its
+`macp-error-code` metadata is `POLICY_DENIED`, and it carries structured
+`denials` (`{code, message, participants}`). Branch on the registry code, never
+on the gRPC status.
+
 A rejected commit produces no terminal commitment, so the session would
 otherwise linger until TTL expiry. To keep the demo deterministic, the
 `risk-decider` coordinator catches any rejected commit (typically
 `POLICY_DENIED`) and drives the session to a terminal **`CANCELLED`** state via
-`participant.client.cancelSession()`. It does the same when its wait-all
+`participant.client.cancelSession()`, with a reason that names the denial
+codes, e.g.
+`commitment rejected by runtime: POLICY_DENIED: … [denials: confidence_below_minimum, veto]`
+(the `[denials: …]` suffix is omitted when the runtime attached none). It does the same when its wait-all
 deadline (`RISK_DECIDER_WAIT_ALL_TIMEOUT_MS`, default 60 s) passes with quorum
 unmet, so no commit is attempted at all. The control-plane observer maps the
 resulting `CANCELLED` lifecycle event to a `cancelled` run status — distinct
@@ -269,11 +294,13 @@ and [RFC-MACP-0007 §6.2](https://github.com/multiagentcoordinationprotocol/mult
 > - `policy.default` is never registered (`listRegistrablePolicies()` excludes
 >   it; the id is the runtime's own built-in), so its file's `schema_version`
 >   is never sent anywhere.
-> - The runtime's **evaluator** supports `{1, 2, 3}` and denies every commitment
->   under any other version at commit time. Its registration step rejects only
->   `0`, so a `4` would register cleanly and then fail every run. This repo
->   catches it earlier — see
->   [Local validation warnings](#local-validation-warnings) for where.
+> - The runtime supports `schema_version` `{1, 2, 3}`. Since 0.9.0 its
+>   registration step refuses anything else (`schema_version 4 is not supported
+>   (supported: [1, 2, 3])`); earlier runtimes registered a `4` cleanly and then
+>   denied every commit under it. This repo catches it earlier still — see
+>   [Local validation warnings](#local-validation-warnings) for where — and CI's
+>   `runtime-policy-admission` job dry-runs every shipped policy through the
+>   pinned runtime binary.
 
 ## Creating a Custom Policy
 

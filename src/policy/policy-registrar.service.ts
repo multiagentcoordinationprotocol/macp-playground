@@ -8,6 +8,9 @@ import type { PolicyDefinition } from '../contracts/policy';
 
 const REGISTRAR_SENDER = 'macp-playground';
 
+/** Registry code a runtime ≥ 0.9.0 attaches (`macp-error-code`) to a mutation refused by a read-only registry. */
+const REGISTRY_READ_ONLY = 'REGISTRY_READ_ONLY';
+
 @Injectable()
 export class PolicyRegistrarService implements OnApplicationBootstrap {
   private readonly logger = new Logger(PolicyRegistrarService.name);
@@ -92,7 +95,7 @@ export class PolicyRegistrarService implements OnApplicationBootstrap {
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        if (this.isReadOnlyRegistryError(message)) {
+        if (this.isReadOnlyRegistryError(message, macpErrorCodeOf(err))) {
           readOnlyRegistry = true;
           this.logger.log(
             `policy registry is read-only (runtime MACP_POLICIES_DIR) — switching to verification; ` +
@@ -219,14 +222,22 @@ export class PolicyRegistrarService implements OnApplicationBootstrap {
   }
 
   /**
-   * Detect a read-only policy registry. A runtime started with MACP_POLICIES_DIR
-   * (v0.5.0) rejects mutating policy RPCs with FAILED_PRECONDITION, referencing
-   * the read-only / file-managed registry.
+   * Detect a read-only policy registry — a runtime started with MACP_POLICIES_DIR
+   * refuses mutating policy RPCs with FAILED_PRECONDITION.
+   *
+   * Runtime ≥ 0.9.0 names the cause in `macp-error-code` metadata, which the SDK (≥ 0.15)
+   * surfaces as `macpErrorCode` (`REGISTRY_READ_ONLY`; `failure.code` stays
+   * `FAILED_PRECONDITION` for compatibility). When that code is present it is
+   * authoritative: any other code is NOT read-only, however the message reads. The
+   * substring match below is only the fallback for pre-0.9 runtimes, which send a bare
+   * status, and for the in-band `result.error` string, which carries no code.
    */
-  private isReadOnlyRegistryError(error: string | undefined): boolean {
+  private isReadOnlyRegistryError(error: string | undefined, macpErrorCode?: string): boolean {
+    if (macpErrorCode) return macpErrorCode === REGISTRY_READ_ONLY;
     if (!error) return false;
     const normalized = error.toLowerCase();
     return (
+      normalized.includes(REGISTRY_READ_ONLY.toLowerCase()) ||
       normalized.includes('failed_precondition') ||
       normalized.includes('read-only') ||
       normalized.includes('read only') ||
@@ -236,4 +247,15 @@ export class PolicyRegistrarService implements OnApplicationBootstrap {
       normalized.includes('managed by the runtime')
     );
   }
+}
+
+/**
+ * The registry code an SDK error carries (`MacpAckError` / `MacpTransportError` .macpErrorCode,
+ * runtime ≥ 0.9.0). Read structurally rather than via `instanceof` so it holds across duplicate
+ * SDK copies.
+ */
+function macpErrorCodeOf(err: unknown): string | undefined {
+  if (typeof err !== 'object' || err === null) return undefined;
+  const code = (err as { macpErrorCode?: unknown }).macpErrorCode;
+  return typeof code === 'string' && code.length > 0 ? code : undefined;
 }
