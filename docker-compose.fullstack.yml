@@ -1,4 +1,4 @@
-# Full-stack real-LLM end-to-end harness (runtime 0.9.0; sibling services at :0.8.0).
+# Full-stack real-LLM end-to-end harness (runtime 0.9.0; siblings pinned by commit).
 #
 # Brings up the complete MACP stack on the runtime 0.9.0 release so the example
 # agents (LangGraph / LangChain / CrewAI / custom) actually call a real LLM and
@@ -23,20 +23,32 @@
 # 0.9.0 is a WIRE break, unlike the 0.8.x patch series: new sessions bind semantics_rev 4,
 # every gRPC Status carries its registry code in `macp-error-code` metadata, a denied
 # commitment carries structured `denials`, and the proto moves to macp-proto 0.1.11.
-# The SDKs this repo pins (macp-sdk-typescript 0.16 / macp-sdk-python 0.16) are the
-# releases that absorbed it. Upgrade notes:
+# The SDKs this repo pins (macp-sdk-typescript 0.17 / macp-sdk-python 0.17) both
+# require runtime >= 0.9.0 (0.16 was the line that first absorbed it). Upgrade notes:
 # https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/deployment.md#upgrading-to-090
 #
 # Prereqs:
 #   runtime      — pulled from ghcr (no local Rust build needed)
-#   control-plane / auth-service / playground — built locally at :0.8.0
-#     (rebuild macp-playground from this branch to pick up the absorption changes)
+#   control-plane / auth-service — built locally, tagged with the exact sibling commit:
+#     macp-control-plane:cab0e5a  (macp-control-plane#114, runtime 0.9.0 alignment)
+#     macp-auth-service:5270353   (auth-service#41)
+#   Neither sibling publishes semver image tags — GHCR carries only `sha-<commit>` tags,
+#   and macp-control-plane's are linux/amd64-only — so these follow the local-build
+#   convention, with the commit as the tag so the pin is unambiguous. Build from a clean
+#   tree (a dirty checkout would otherwise leak into the image):
+#     export GITHUB_TOKEN=$(gh auth token)   # read:packages, for the private proto package
+#     git -C ../macp-control-plane archive cab0e5a | \
+#       docker build --secret id=npm_token,env=GITHUB_TOKEN -t macp-control-plane:cab0e5a -
+#     git -C ../auth-service archive 5270353 | docker build -t macp-auth-service:5270353 -
+#   On linux/amd64 hosts `ghcr.io/multiagentcoordinationprotocol/<name>:sha-<commit>` is the
+#   same build, published. macp-ui-console (6e16db0, #60) is not part of this stack.
+#   playground — built from this checkout (`docker compose ... up --build`; needs NODE_AUTH_TOKEN)
 #
 # Run:  OPENAI_API_KEY=sk-... docker compose -f docker-compose.fullstack.yml up
 
 services:
   auth-service:
-    image: macp-auth-service:0.8.0
+    image: macp-auth-service:5270353
     ports:
       - '3200:3200'
     environment:
@@ -111,7 +123,7 @@ services:
       retries: 10
 
   migrate:
-    image: macp-control-plane:0.8.0
+    image: macp-control-plane:cab0e5a
     command: ['node', 'dist/db/migrate.js']
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/macp_control_plane
@@ -120,7 +132,7 @@ services:
         condition: service_healthy
 
   macp-control-plane:
-    image: macp-control-plane:0.8.0
+    image: macp-control-plane:cab0e5a
     ports:
       - '3001:3001'
     environment:
@@ -145,7 +157,11 @@ services:
         condition: service_healthy
 
   macp-playground:
-    image: macp-playground:0.8.0
+    image: macp-playground:local
+    build:
+      context: .
+      args:
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     ports:
       - '3000:3000'
     environment:

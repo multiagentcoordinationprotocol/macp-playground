@@ -12,7 +12,9 @@ crewai==0.203.2
 # .github/dependabot.yml for the matching ignore.
 openai==2.54.0
 # Direct-agent-auth: agents open their own gRPC channel to the MACP runtime
-# via macp_sdk (RFC-MACP-0004 §4). 0.16 is the line that absorbed runtime 0.9.0
-# (registry codes on every status, structured POLICY_DENIED denials). Capped below
-# 0.17, whose task-rule projection change is a separate, deliberate bump.
-macp-sdk-python>=0.16.0,<0.17
+# via macp_sdk (RFC-MACP-0004 §4). 0.16 absorbed runtime 0.9.0 (registry codes on
+# every status, structured POLICY_DENIED denials); 0.17 adds the Task rule 2a
+# projection (a pre-assignment TaskReject is a personal decline) — inert here, since
+# every shipped scenario is Decision-mode. Capped below 0.18 so the next breaking
+# line is again a deliberate bump. Requires runtime >= 0.9.0.
+macp-sdk-python>=0.17.0,<0.18
