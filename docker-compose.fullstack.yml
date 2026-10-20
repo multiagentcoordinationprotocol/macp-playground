@@ -30,15 +30,17 @@
 # Prereqs:
 #   runtime      — pulled from ghcr (no local Rust build needed)
 #   control-plane / auth-service — built locally, tagged with the exact sibling commit:
-#     macp-control-plane:cab0e5a  (macp-control-plane#114, runtime 0.9.0 alignment)
+#     macp-control-plane:778258e  (macp-control-plane#118: per-run event transactions
+#                                  serialized, so concurrent events no longer drop from
+#                                  the projection; on top of #114's runtime 0.9.0 alignment)
 #     macp-auth-service:5270353   (auth-service#41)
 #   Neither sibling publishes semver image tags — GHCR carries only `sha-<commit>` tags,
 #   and macp-control-plane's are linux/amd64-only — so these follow the local-build
 #   convention, with the commit as the tag so the pin is unambiguous. Build from a clean
 #   tree (a dirty checkout would otherwise leak into the image):
 #     export GITHUB_TOKEN=$(gh auth token)   # read:packages, for the private proto package
-#     git -C ../macp-control-plane archive cab0e5a | \
-#       docker build --secret id=npm_token,env=GITHUB_TOKEN -t macp-control-plane:cab0e5a -
+#     git -C ../macp-control-plane archive 778258e | \
+#       docker build --secret id=npm_token,env=GITHUB_TOKEN -t macp-control-plane:778258e -
 #     git -C ../auth-service archive 5270353 | docker build -t macp-auth-service:5270353 -
 #   On linux/amd64 hosts `ghcr.io/multiagentcoordinationprotocol/<name>:sha-<commit>` is the
 #   same build, published. macp-ui-console (6e16db0, #60) is not part of this stack.
@@ -123,7 +125,7 @@ services:
       retries: 10
 
   migrate:
-    image: macp-control-plane:cab0e5a
+    image: macp-control-plane:778258e
     command: ['node', 'dist/db/migrate.js']
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/macp_control_plane
@@ -132,7 +134,7 @@ services:
         condition: service_healthy
 
   macp-control-plane:
-    image: macp-control-plane:cab0e5a
+    image: macp-control-plane:778258e
     ports:
       - '3001:3001'
     environment:
