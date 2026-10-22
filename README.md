@@ -192,6 +192,8 @@ npm run scenario:dry-run   # Compile a scenario offline and print the CompileLau
 npm run scenario:lint      # Static checks across one or more packs
 ```
 
+> **For MACP org members:** agents working in this repo can query the MACP knowledge base through the `macp-kb` MCP server. Setup instructions are in the private `macp-docs` repo (README, "MCP server"). Answers cite the source repo and commit, so check freshness with `kb_status` before relying on one. Outside contributors can ignore this note.
+
 ## Docker
 
 ```bash
