@@ -436,6 +436,42 @@ describe('CompilerService', () => {
       ).resolves.toBeDefined();
     });
 
+    it('threads a template agentExecution override into scenarioMeta (W1.7 showcase)', async () => {
+      mockIndex.getScenarioVersion.mockResolvedValue(mockScenario);
+      mockIndex.getTemplate.mockResolvedValue({
+        ...mockTemplate,
+        spec: { overrides: { launch: { agentExecution: 'deterministic' } } }
+      });
+
+      const result = await service.compile({ scenarioRef: 'fraud/test@1.0.0', templateId: 'showcase', inputs: {} });
+
+      expect(result.scenarioMeta.agentExecution).toBe('deterministic');
+    });
+
+    it('leaves agentExecution unset when neither scenario nor template names it', async () => {
+      mockIndex.getScenarioVersion.mockResolvedValue(mockScenario);
+
+      const result = await service.compile({ scenarioRef: 'fraud/test@1.0.0', inputs: {} });
+
+      expect(result.scenarioMeta).not.toHaveProperty('agentExecution');
+    });
+
+    it('rejects an unknown agentExecution value with COMPILATION_ERROR', async () => {
+      mockIndex.getScenarioVersion.mockResolvedValue({
+        ...mockScenario,
+        spec: {
+          ...mockScenario.spec,
+          launch: { ...mockScenario.spec.launch, agentExecution: 'offline' as unknown as 'deterministic' }
+        }
+      });
+
+      const err = await service.compile({ scenarioRef: 'fraud/test@1.0.0', inputs: {} }).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(AppException);
+      expect((err as AppException).errorCode).toBe(ErrorCode.COMPILATION_ERROR);
+      expect((err as AppException).message).toContain('launch.agentExecution');
+    });
+
     it('omits initiator.kickoff when the scenario has no kickoff template', async () => {
       const noKickoffScenario: ScenarioVersionFile = {
         ...mockScenario,

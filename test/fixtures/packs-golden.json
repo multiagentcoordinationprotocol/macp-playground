@@ -6,12 +6,7 @@
       "slug": "claims",
       "name": "Claims",
       "description": "Insurance claims review and adjudication demos",
-      "tags": [
-        "claims",
-        "insurance",
-        "review",
-        "demo"
-      ]
+      "tags": ["claims", "insurance", "review", "demo"]
     }
   },
   "packs/claims/scenarios/auto-claim-review/1.0.0/scenario.yaml": {
@@ -23,14 +18,7 @@
       "version": "1.0.0",
       "name": "Auto Claim Review",
       "summary": "Claims validation, fraud investigation, compliance review, and customer advocacy agents collaborate on an auto insurance claim.",
-      "tags": [
-        "claims",
-        "insurance",
-        "fraud",
-        "compliance",
-        "demo",
-        "mixed-framework"
-      ]
+      "tags": ["claims", "insurance", "fraud", "compliance", "demo", "mixed-framework"]
     },
     "spec": {
       "runtime": {
@@ -68,21 +56,10 @@
             "incidentSeverity": {
               "type": "string",
               "default": "moderate",
-              "enum": [
-                "minor",
-                "moderate",
-                "severe",
-                "total_loss"
-              ]
+              "enum": ["minor", "moderate", "severe", "total_loss"]
             }
           },
-          "required": [
-            "claimAmount",
-            "policyAge",
-            "priorClaims",
-            "isHighValuePolicy",
-            "incidentSeverity"
-          ]
+          "required": ["claimAmount", "policyAge", "priorClaims", "isHighValuePolicy", "incidentSeverity"]
         }
       },
       "launch": {
@@ -128,27 +105,21 @@
             "id": "claim-validated",
             "title": "Claim validated",
             "description": "Claims validator has confirmed documentation and policy coverage for the incident.",
-            "requiredRoles": [
-              "claims-validator"
-            ],
+            "requiredRoles": ["claims-validator"],
             "policyRef": "policy.claims.majority"
           },
           {
             "id": "compliance-reviewed",
             "title": "Compliance review complete",
             "description": "Compliance reviewer has confirmed the claim meets regulatory handling requirements.",
-            "requiredRoles": [
-              "compliance-reviewer"
-            ],
+            "requiredRoles": ["compliance-reviewer"],
             "policyRef": "policy.claims.majority"
           },
           {
             "id": "claim-decision",
             "title": "Claim decision finalized",
             "description": "Risk coordinator has reconciled inputs and issued an approve / investigate / deny decision.",
-            "requiredRoles": [
-              "risk"
-            ],
+            "requiredRoles": ["risk"],
             "policyRef": "policy.claims.majority"
           }
         ],
@@ -163,21 +134,13 @@
         "metadataTemplate": {
           "demoType": "claims-review",
           "decisionOwner": "risk-agent",
-          "specialists": [
-            "fraud-agent",
-            "growth-agent",
-            "compliance-agent"
-          ],
+          "specialists": ["fraud-agent", "growth-agent", "compliance-agent"],
           "intent": "review auto insurance claim with multi-framework agents"
         },
         "kickoffTemplate": [
           {
             "from": "risk-agent",
-            "to": [
-              "fraud-agent",
-              "growth-agent",
-              "compliance-agent"
-            ],
+            "to": ["fraud-agent", "growth-agent", "compliance-agent"],
             "kind": "proposal",
             "messageType": "Proposal",
             "payloadEnvelope": {
@@ -195,29 +158,15 @@
         ]
       },
       "execution": {
-        "tags": [
-          "demo",
-          "claims",
-          "mixed-framework",
-          "examples"
-        ],
+        "tags": ["demo", "claims", "mixed-framework", "examples"],
         "requester": {
           "actorId": "macp-playground",
           "actorType": "service"
         }
       },
       "outputs": {
-        "expectedDecisionKinds": [
-          "approve",
-          "investigate",
-          "deny"
-        ],
-        "expectedSignals": [
-          "suspicious_pattern",
-          "prior_claims_history",
-          "high_value_policy",
-          "severity_assessment"
-        ]
+        "expectedDecisionKinds": ["approve", "investigate", "deny"],
+        "expectedSignals": ["suspicious_pattern", "prior_claims_history", "high_value_policy", "severity_assessment"]
       }
     }
   },
@@ -246,12 +195,7 @@
       "slug": "fraud",
       "name": "Fraud",
       "description": "Fraud and risk decisioning demos",
-      "tags": [
-        "fraud",
-        "risk",
-        "growth",
-        "demo"
-      ]
+      "tags": ["fraud", "risk", "growth", "demo"]
     }
   },
   "packs/fraud/scenarios/high-value-new-device/1.0.0/scenario.yaml": {
@@ -263,13 +207,7 @@
       "version": "1.0.0",
       "name": "High Value Purchase From New Device",
       "summary": "Fraud, Growth, Compliance, and Risk agents discuss a transaction and produce a decision.",
-      "tags": [
-        "fraud",
-        "growth",
-        "compliance",
-        "risk",
-        "demo"
-      ]
+      "tags": ["fraud", "growth", "compliance", "risk", "demo"]
     },
     "spec": {
       "runtime": {
@@ -310,13 +248,7 @@
               "minimum": 0
             }
           },
-          "required": [
-            "transactionAmount",
-            "deviceTrustScore",
-            "accountAgeDays",
-            "isVipCustomer",
-            "priorChargebacks"
-          ]
+          "required": ["transactionAmount", "deviceTrustScore", "accountAgeDays", "isVipCustomer", "priorChargebacks"]
         }
       },
       "launch": {
@@ -360,27 +292,21 @@
             "id": "fraud-risk-assessed",
             "title": "Fraud risk assessed",
             "description": "Fraud specialist has evaluated transaction signals and recorded a risk verdict.",
-            "requiredRoles": [
-              "fraud"
-            ],
+            "requiredRoles": ["fraud"],
             "policyRef": "policy.default"
           },
           {
             "id": "compliance-reviewed",
             "title": "Compliance review complete",
             "description": "Compliance reviewer has cleared the transaction against regulatory constraints.",
-            "requiredRoles": [
-              "compliance"
-            ],
+            "requiredRoles": ["compliance"],
             "policyRef": "policy.default"
           },
           {
             "id": "decision-finalized",
             "title": "Decision finalized",
             "description": "Risk coordinator has reconciled specialist inputs and committed a final decision.",
-            "requiredRoles": [
-              "risk"
-            ],
+            "requiredRoles": ["risk"],
             "policyRef": "policy.default"
           }
         ],
@@ -395,21 +321,13 @@
         "metadataTemplate": {
           "demoType": "fraud-decision",
           "decisionOwner": "risk-agent",
-          "specialists": [
-            "fraud-agent",
-            "growth-agent",
-            "compliance-agent"
-          ],
+          "specialists": ["fraud-agent", "growth-agent", "compliance-agent"],
           "intent": "evaluate high value transaction from a new device"
         },
         "kickoffTemplate": [
           {
             "from": "risk-agent",
-            "to": [
-              "fraud-agent",
-              "growth-agent",
-              "compliance-agent"
-            ],
+            "to": ["fraud-agent", "growth-agent", "compliance-agent"],
             "kind": "proposal",
             "messageType": "Proposal",
             "payloadEnvelope": {
@@ -427,28 +345,15 @@
         ]
       },
       "execution": {
-        "tags": [
-          "demo",
-          "fraud",
-          "examples"
-        ],
+        "tags": ["demo", "fraud", "examples"],
         "requester": {
           "actorId": "macp-playground",
           "actorType": "service"
         }
       },
       "outputs": {
-        "expectedDecisionKinds": [
-          "approve",
-          "step_up",
-          "decline"
-        ],
-        "expectedSignals": [
-          "suspicious_device",
-          "chargeback_history",
-          "vip_customer",
-          "low_device_trust"
-        ]
+        "expectedDecisionKinds": ["approve", "step_up", "decline"],
+        "expectedSignals": ["suspicious_device", "chargeback_history", "vip_customer", "low_device_trust"]
       }
     }
   },
@@ -498,6 +403,30 @@
             "minimumConfidence": 0,
             "designatedRoles": []
           }
+        }
+      }
+    }
+  },
+  "packs/fraud/scenarios/high-value-new-device/1.0.0/templates/showcase.yaml": {
+    "apiVersion": "scenarios.macp.dev/v1",
+    "kind": "ScenarioTemplate",
+    "metadata": {
+      "scenarioVersion": "fraud/high-value-new-device@1.0.0",
+      "slug": "showcase",
+      "name": "Showcase (deterministic, no LLM)"
+    },
+    "spec": {
+      "defaults": {
+        "customerId": "CUST-1001",
+        "transactionAmount": 2400,
+        "deviceTrustScore": 0.18,
+        "accountAgeDays": 14,
+        "isVipCustomer": true,
+        "priorChargebacks": 1
+      },
+      "overrides": {
+        "launch": {
+          "agentExecution": "deterministic"
         }
       }
     }
@@ -603,12 +532,7 @@
       "slug": "lending",
       "name": "Lending",
       "description": "Loan underwriting and credit decisioning demos",
-      "tags": [
-        "lending",
-        "credit",
-        "underwriting",
-        "demo"
-      ]
+      "tags": ["lending", "credit", "underwriting", "demo"]
     }
   },
   "packs/lending/scenarios/loan-underwriting/1.0.0/scenario.yaml": {
@@ -620,15 +544,7 @@
       "version": "1.0.0",
       "name": "Loan Underwriting Review",
       "summary": "Credit, fraud, compliance, and risk agents collaborate on a loan application decision.",
-      "tags": [
-        "lending",
-        "credit",
-        "fraud",
-        "compliance",
-        "risk",
-        "demo",
-        "mixed-framework"
-      ]
+      "tags": ["lending", "credit", "fraud", "compliance", "risk", "demo", "mixed-framework"]
     },
     "spec": {
       "runtime": {
@@ -697,10 +613,7 @@
           "vetoEnabled": true,
           "vetoThreshold": 1,
           "minimumConfidence": 0.6,
-          "designatedRoles": [
-            "risk",
-            "compliance"
-          ]
+          "designatedRoles": ["risk", "compliance"]
         },
         "ttlMs": 300000,
         "initiatorParticipantId": "risk-agent",
@@ -731,36 +644,28 @@
             "id": "credit-evaluated",
             "title": "Credit evaluation complete",
             "description": "Credit analyst has reviewed applicant score, DTI, and tenure.",
-            "requiredRoles": [
-              "credit-analyst"
-            ],
+            "requiredRoles": ["credit-analyst"],
             "policyRef": "policy.lending.conservative"
           },
           {
             "id": "fraud-screened",
             "title": "Fraud screening complete",
             "description": "Fraud specialist has screened the application for identity and application-fraud signals.",
-            "requiredRoles": [
-              "fraud"
-            ],
+            "requiredRoles": ["fraud"],
             "policyRef": "policy.lending.conservative"
           },
           {
             "id": "compliance-reviewed",
             "title": "Compliance review complete",
             "description": "Compliance reviewer has confirmed fair-lending and KYC requirements are satisfied.",
-            "requiredRoles": [
-              "compliance"
-            ],
+            "requiredRoles": ["compliance"],
             "policyRef": "policy.lending.conservative"
           },
           {
             "id": "underwriting-decision",
             "title": "Underwriting decision finalized",
             "description": "Risk coordinator has reconciled specialist inputs and issued an underwriting decision.",
-            "requiredRoles": [
-              "risk"
-            ],
+            "requiredRoles": ["risk"],
             "policyRef": "policy.lending.conservative"
           }
         ],
@@ -776,21 +681,13 @@
         "metadataTemplate": {
           "demoType": "loan-underwriting",
           "decisionOwner": "risk-agent",
-          "specialists": [
-            "fraud-agent",
-            "growth-agent",
-            "compliance-agent"
-          ],
+          "specialists": ["fraud-agent", "growth-agent", "compliance-agent"],
           "intent": "evaluate loan application with multi-framework agents"
         },
         "kickoffTemplate": [
           {
             "from": "risk-agent",
-            "to": [
-              "fraud-agent",
-              "growth-agent",
-              "compliance-agent"
-            ],
+            "to": ["fraud-agent", "growth-agent", "compliance-agent"],
             "kind": "proposal",
             "messageType": "Proposal",
             "payloadEnvelope": {
@@ -808,29 +705,15 @@
         ]
       },
       "execution": {
-        "tags": [
-          "demo",
-          "lending",
-          "mixed-framework",
-          "examples"
-        ],
+        "tags": ["demo", "lending", "mixed-framework", "examples"],
         "requester": {
           "actorId": "macp-playground",
           "actorType": "service"
         }
       },
       "outputs": {
-        "expectedDecisionKinds": [
-          "approve",
-          "conditional_approve",
-          "decline"
-        ],
-        "expectedSignals": [
-          "low_credit_score",
-          "high_dti_ratio",
-          "prior_defaults",
-          "existing_customer"
-        ]
+        "expectedDecisionKinds": ["approve", "conditional_approve", "decline"],
+        "expectedSignals": ["low_credit_score", "high_dti_ratio", "prior_defaults", "existing_customer"]
       }
     }
   },
