@@ -58,6 +58,9 @@ export interface RuntimeSelectionTemplate {
   version?: string;
 }
 
+export const AGENT_EXECUTION_VALUES = ['llm', 'deterministic'] as const;
+export type AgentExecution = (typeof AGENT_EXECUTION_VALUES)[number];
+
 export interface CommitmentDefinition {
   id: string;
   title: string;
@@ -104,6 +107,13 @@ export interface ScenarioVersionFile {
        * `SessionStartPayload.max_suspend_ms`. 0/absent → runtime default (7 days).
        */
       maxSuspendMs?: number;
+      /**
+       * How hosted example agents reach a decision. `deterministic` strips every LLM provider key
+       * from the spawned agents' environment, so each worker takes its rule-based `score_by_domain`
+       * path even when the deployment holds an `OPENAI_API_KEY`. Absent/`llm` → workers use an LLM
+       * when a key is present (the pre-existing behaviour). Used by the console showcase (W1.7).
+       */
+      agentExecution?: AgentExecution;
       initiatorParticipantId?: string;
       participants: ParticipantTemplate[];
       commitments?: CommitmentDefinition[];

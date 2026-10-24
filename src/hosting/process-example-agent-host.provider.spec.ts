@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { AppConfigService } from '../config/app-config.service';
 import { AuthTokenMinterService } from '../auth/auth-token-minter.service';
 import { ExampleAgentDefinition, ExampleAgentRunContext, ParticipantAgentBinding } from '../contracts/example-agents';
-import { ProcessExampleAgentHostProvider } from './process-example-agent-host.provider';
+import { LLM_PROVIDER_ENV_KEYS, ProcessExampleAgentHostProvider } from './process-example-agent-host.provider';
 import { HostAdapterRegistry } from './host-adapter-registry';
 import { LaunchSupervisor } from './launch-supervisor';
 import { ManifestValidator } from './manifest-validator';
@@ -241,6 +241,57 @@ describe('ProcessExampleAgentHostProvider', () => {
       it('lets an interpreter named in the manifest win over the configured one', async () => {
         (config as unknown as { exampleAgentPythonPath: string }).exampleAgentPythonPath = '/opt/venv/bin/python';
         expect(await launchedCommand({ python: '/custom/python' })).toBe('/custom/python');
+      });
+    });
+
+    // W1.7: the console showcase must stay deterministic and free on a deployment that holds an
+    // OPENAI_API_KEY, so a deterministic launch must never hand an LLM key to the worker.
+    describe('deterministic agent execution', () => {
+      const saved: Record<string, string | undefined> = {};
+
+      beforeEach(() => {
+        for (const key of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY']) {
+          saved[key] = process.env[key];
+          process.env[key] = `test-${key}`;
+        }
+      });
+
+      afterEach(() => {
+        for (const [key, value] of Object.entries(saved)) {
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
+      });
+
+      async function launchedEnv(deterministicAgents?: boolean): Promise<Record<string, string>> {
+        (fs.existsSync as jest.Mock).mockReturnValue(true);
+        jest.spyOn(supervisor, 'writeBootstrapFile').mockReturnValue('/tmp/bootstrap.json');
+        const launch = jest.spyOn(supervisor, 'launch').mockReturnValue({
+          handle: { participantId: 'fraud-agent', runId: 'run-1', pid: 12345, framework: 'langgraph' },
+          child: createMockChild(),
+          manifest: buildDefinition().manifest!,
+          launchedAt: '2026-01-01T00:00:00Z',
+          command: 'unused',
+          args: [],
+          bootstrapFilePath: '/tmp/bootstrap.json',
+          healthStatus: 'starting'
+        });
+        await provider.attach(buildDefinition(), buildBinding(), buildContext({ deterministicAgents }));
+        return (launch.mock.calls[0][0] as { env: Record<string, string> }).env;
+      }
+
+      it('strips every LLM provider key from the spawned agent when deterministicAgents is set', async () => {
+        const env = await launchedEnv(true);
+        for (const key of LLM_PROVIDER_ENV_KEYS) expect(env).not.toHaveProperty(key);
+        expect(env.MACP_AGENT_EXECUTION).toBe('deterministic');
+        // Everything the agent needs to reach the runtime is untouched.
+        expect(env.MACP_RUNTIME_TOKEN).toBe('jwt-fraud-agent');
+      });
+
+      it('passes the deployment key through unchanged for an ordinary launch', async () => {
+        const env = await launchedEnv(undefined);
+        expect(env.OPENAI_API_KEY).toBe('test-OPENAI_API_KEY');
+        expect(env).not.toHaveProperty('MACP_AGENT_EXECUTION');
       });
     });
 

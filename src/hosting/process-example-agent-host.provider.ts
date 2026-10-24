@@ -17,6 +17,28 @@ import { AgentManifest, AgentFramework } from './contracts/manifest.types';
 import { BootstrapPayload } from './contracts/bootstrap.types';
 import { allocateCancelCallback } from './cancel-callback';
 
+/**
+ * Environment variables that could let a spawned worker reach a hosted LLM. The shipped workers read
+ * only `OPENAI_API_KEY`; the rest are what crewai/litellm and langchain integrations pick up on their
+ * own, listed so a future worker cannot quietly bypass a deterministic launch.
+ */
+export const LLM_PROVIDER_ENV_KEYS = [
+  'OPENAI_API_KEY',
+  'AZURE_OPENAI_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'GOOGLE_API_KEY',
+  'GEMINI_API_KEY',
+  'MISTRAL_API_KEY',
+  'COHERE_API_KEY',
+  'GROQ_API_KEY'
+] as const;
+
+export function withoutLlmProviderKeys(env: Record<string, string>): Record<string, string> {
+  const stripped: Record<string, string> = { ...env, MACP_AGENT_EXECUTION: 'deterministic' };
+  for (const key of LLM_PROVIDER_ENV_KEYS) delete stripped[key];
+  return stripped;
+}
+
 @Injectable()
 export class ProcessExampleAgentHostProvider implements ExampleAgentHostProvider, OnModuleDestroy {
   private readonly logger = new Logger(ProcessExampleAgentHostProvider.name);
@@ -158,6 +180,12 @@ export class ProcessExampleAgentHostProvider implements ExampleAgentHostProvider
       }
     };
     const prepared = adapter.prepareLaunch({ manifest: launchManifest, bootstrap });
+    if (context.deterministicAgents) {
+      // Every adapter spreads the service's own `process.env` into the child, so a deployment-wide
+      // `OPENAI_API_KEY` would otherwise reach the worker. Dropping it here, after the adapter, covers
+      // all four frameworks in one place and makes each worker take its rule-based fallback (W1.7).
+      prepared.env = withoutLlmProviderKeys(prepared.env);
+    }
 
     const record = this.supervisor.launch(prepared, launchManifest, bootstrap, bootstrapFilePath);
 

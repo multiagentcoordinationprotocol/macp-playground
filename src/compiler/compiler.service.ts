@@ -5,7 +5,12 @@ import { createScenarioAjv } from './ajv-factory';
 import { CompileLaunchRequest, CompileLaunchResult, InitiatorPayload } from '../contracts/launch';
 import { RunDescriptor } from '../contracts/run-descriptor';
 import { ParticipantAgentBinding } from '../contracts/example-agents';
-import { ScenarioVersionFile, ScenarioTemplateFile, KickoffTemplate } from '../contracts/registry';
+import {
+  AGENT_EXECUTION_VALUES,
+  ScenarioVersionFile,
+  ScenarioTemplateFile,
+  KickoffTemplate
+} from '../contracts/registry';
 import { AppException } from '../errors/app-exception';
 import { ErrorCode } from '../errors/error-codes';
 import { RegistryIndexService } from '../registry/registry-index.service';
@@ -88,6 +93,14 @@ export class CompilerService {
       throw new AppException(ErrorCode.COMPILATION_ERROR, extensionsProblem, HttpStatus.BAD_REQUEST);
     }
 
+    if (launch.agentExecution !== undefined && !AGENT_EXECUTION_VALUES.includes(launch.agentExecution)) {
+      throw new AppException(
+        ErrorCode.COMPILATION_ERROR,
+        `launch.agentExecution must be one of ${AGENT_EXECUTION_VALUES.join(', ')}; got ${JSON.stringify(launch.agentExecution)}`,
+        HttpStatus.BAD_REQUEST
+      );
+    }
+
     const sessionId = randomUUID();
     const participantIds = launch.participants.map((participant) => participant.id);
 
@@ -164,7 +177,8 @@ export class CompilerService {
       scenarioMeta: {
         policyHints: launch.policyHints,
         sessionContext: context,
-        initiatorParticipantId
+        initiatorParticipantId,
+        ...(launch.agentExecution ? { agentExecution: launch.agentExecution } : {})
       },
       display: {
         title: scenario.metadata.name,

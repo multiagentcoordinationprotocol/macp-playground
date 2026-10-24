@@ -130,6 +130,26 @@ describe('ExampleRunService', () => {
     expect(result.sessionId).toBe(sessionId);
   });
 
+  it('asks hosting for deterministic agents only when the compiled scenario says so (W1.7)', async () => {
+    compiler.compile.mockImplementation(async () => {
+      const c = buildCompiled();
+      c.scenarioMeta.agentExecution = 'deterministic';
+      return c;
+    });
+    await service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', templateId: 'showcase', inputs: {} });
+    expect(hosting.attach).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ deterministicAgents: true })
+    );
+
+    compiler.compile.mockImplementation(async () => buildCompiled());
+    await service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', inputs: {} });
+    expect(hosting.attach).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ deterministicAgents: false })
+    );
+  });
+
   it('falls back to a freshly-generated UUID and mirrors it into runDescriptor.session.sessionId when compiled.sessionId is falsy', async () => {
     // Defense-in-depth: CompileLaunchResult.sessionId is typed as required
     // and CompilerService always populates it today, so this path isn't

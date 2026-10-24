@@ -1,0 +1,22 @@
+apiVersion: scenarios.macp.dev/v1
+kind: ScenarioTemplate
+metadata:
+  scenarioVersion: fraud/high-value-new-device@1.0.0
+  slug: showcase
+  name: Showcase (deterministic, no LLM)
+spec:
+  # The console's public showcase (/showcase, W1.7) launches this template. It must give every
+  # anonymous visitor the same outcome without spending on an LLM, whatever key the deployment
+  # holds: `agentExecution: deterministic` makes hosting strip LLM provider keys from all four
+  # spawned agents, so each takes its rule-based `score_by_domain` path. The inputs are pinned to
+  # the default template's values; change them and the showcase outcome changes with them.
+  defaults:
+    customerId: CUST-1001
+    transactionAmount: 2400
+    deviceTrustScore: 0.18
+    accountAgeDays: 14
+    isVipCustomer: true
+    priorChargebacks: 1
+  overrides:
+    launch:
+      agentExecution: deterministic

@@ -77,6 +77,8 @@ export interface ExampleAgentRunContext {
   };
   ttlMs: number;
   sessionContext?: Record<string, unknown>;
+  /** When true, LLM provider keys are removed from the spawned agent's environment. */
+  deterministicAgents?: boolean;
   participants: string[];
   initiatorParticipantId?: string;
   /**

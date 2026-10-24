@@ -70,6 +70,7 @@ export class ExampleRunService {
         policyHints: compiled.scenarioMeta.policyHints,
         ttlMs: session.ttlMs,
         sessionContext: compiled.scenarioMeta.sessionContext,
+        deterministicAgents: compiled.scenarioMeta.agentExecution === 'deterministic',
         participants: session.participants.map((p) => p.id),
         initiatorParticipantId: compiled.scenarioMeta.initiatorParticipantId,
         initiator: compiled.initiator

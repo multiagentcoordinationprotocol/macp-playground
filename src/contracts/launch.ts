@@ -1,5 +1,5 @@
 import { HostedExampleAgent, ParticipantAgentBinding, ExampleAgentSummary } from './example-agents';
-import { CommitmentDefinition, PayloadEnvelopeTemplate, RuntimeSelectionTemplate } from './registry';
+import { AgentExecution, CommitmentDefinition, PayloadEnvelopeTemplate, RuntimeSelectionTemplate } from './registry';
 import { RunDescriptor, RunDescriptorResponse } from './run-descriptor';
 
 export type { CommitmentDefinition };
@@ -96,6 +96,8 @@ export interface ScenarioMeta {
   };
   sessionContext?: Record<string, unknown>;
   initiatorParticipantId?: string;
+  /** `deterministic` → hosting strips LLM provider keys from every spawned agent (see `launch.agentExecution`). */
+  agentExecution?: AgentExecution;
 }
 
 export interface CompileLaunchResult {
