@@ -13,7 +13,7 @@ All endpoints return JSON. Error responses follow the format:
 
 `metadata` is **omitted entirely** when the error carries none (`src/errors/app-exception.ts`) — it is not emitted as `null` or `{}`. `statusCode`, `errorCode` and `message` are always present on errors raised by the service itself (`AppException`). Errors raised by Nest's own machinery before a handler runs keep Nest's shape instead — see [Error codes](#error-codes).
 
-Authentication is optional. When `AUTH_API_KEYS` is configured, pass a valid key via the `x-api-key` header. The guard is global, so this includes `GET /healthz`. A missing or wrong key returns `401` in Nest's shape (`{ "statusCode": 401, "message": "Invalid or missing API key", "error": "Unauthorized" }`, no `errorCode`).
+Authentication is optional. When `AUTH_API_KEYS` is configured, pass a valid key via the `x-api-key` header. The guard is global, with one exception: `GET /healthz` never requires a key, so the image's Docker `HEALTHCHECK` (which sends none) keeps passing when keys are on. It returns only `{ "ok": true, "service": "macp-playground" }`. A missing or wrong key returns `401` in Nest's shape (`{ "statusCode": 401, "message": "Invalid or missing API key", "error": "Unauthorized" }`, no `errorCode`).
 
 Rate limiting is global: 100 requests per 60 s per client (`@nestjs/throttler`). Excess requests return `429`.
 

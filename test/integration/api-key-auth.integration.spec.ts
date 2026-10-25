@@ -20,21 +20,27 @@ describeIfMock('API Key Authentication (integration, mock-only)', () => {
       ctx.mockControlPlane!.clearRequests();
     });
 
-    it('rejects requests without x-api-key header with 401', async () => {
+    it('serves the /healthz liveness probe without a key, so the Docker HEALTHCHECK passes', async () => {
       const { status, body } = await ctx.client.requestRaw('GET', '/healthz');
+      expect(status).toBe(200);
+      expect(body).toEqual({ ok: true, service: 'macp-playground' });
+    });
+
+    it('rejects requests without x-api-key header with 401', async () => {
+      const { status, body } = await ctx.client.requestRaw('GET', '/packs');
       expect(status).toBe(401);
       expect((body as Record<string, unknown>).message).toContain('API key');
     });
 
     it('rejects requests with invalid x-api-key header with 401', async () => {
-      const { status } = await ctx.client.requestRaw('GET', '/healthz', {
+      const { status } = await ctx.client.requestRaw('GET', '/packs', {
         headers: { 'x-api-key': 'wrong-key' }
       });
       expect(status).toBe(401);
     });
 
     it('accepts requests with valid x-api-key (first key)', async () => {
-      const { status } = await ctx.client.requestRaw('GET', '/healthz', {
+      const { status } = await ctx.client.requestRaw('GET', '/packs', {
         headers: { 'x-api-key': 'test-key-1' }
       });
       expect(status).toBe(200);
