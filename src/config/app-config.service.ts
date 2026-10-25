@@ -86,6 +86,15 @@ export class AppConfigService implements OnModuleInit {
   readonly registerPoliciesOnLaunch = readBoolean('REGISTER_POLICIES_ON_LAUNCH', true);
   readonly exampleAgentPythonPath = process.env.EXAMPLE_AGENT_PYTHON_PATH ?? 'python3';
   readonly exampleAgentNodePath = process.env.EXAMPLE_AGENT_NODE_PATH ?? process.execPath;
+  /**
+   * Server-side opt-in for LLM-backed example agents. Unset (the default, and the hosted deployment)
+   * → every `/examples/run` launch is deterministic: hosting strips the LLM provider keys from each
+   * spawned agent, so a deployment-wide `OPENAI_API_KEY` is never spent by a launch arriving through
+   * the public console, whatever template it names. Set `PLAYGROUND_ALLOW_LLM=1` on a stack you
+   * own (local `docker-compose.fullstack.yml` does) to let templates without
+   * `agentExecution: deterministic` use the key. A template's own `deterministic` always wins.
+   */
+  readonly allowLlmAgents = readBoolean('PLAYGROUND_ALLOW_LLM', false);
 
   /**
    * gRPC endpoint that spawned agents connect to directly. Required —
@@ -173,6 +182,9 @@ export class AppConfigService implements OnModuleInit {
     this.logger.log(`cache TTL: ${this.registryCacheTtlMs}ms`);
     this.logger.log(`runtime: ${this.runtimeAddress || '(unset)'}`);
     this.logger.log(`control-plane: ${this.controlPlaneUrl || '(unset — CP-1 submission disabled)'}`);
+    this.logger.log(
+      `agent execution: ${this.allowLlmAgents ? 'llm allowed (PLAYGROUND_ALLOW_LLM set)' : 'deterministic only (PLAYGROUND_ALLOW_LLM unset)'}`
+    );
     if (!this.runtimeTls && !this.runtimeAllowInsecure) {
       this.logger.warn(
         'MACP_RUNTIME_TLS=false without MACP_RUNTIME_ALLOW_INSECURE=true: agents will refuse to open the channel (RFC-MACP-0006 §3).'

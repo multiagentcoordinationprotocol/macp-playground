@@ -113,6 +113,8 @@ export async function createIntegrationTestApp(
       host: '0.0.0.0',
       logLevel: 'warn',
       autoBootstrapExampleAgents: overrides?.autoBootstrapExampleAgents ?? true,
+      // Mirrors AppConfigService: LLM agents only on an explicit PLAYGROUND_ALLOW_LLM opt-in.
+      allowLlmAgents: ['1', 'true', 'yes', 'on'].includes((process.env.PLAYGROUND_ALLOW_LLM ?? '').toLowerCase()),
       registerPoliciesOnLaunch: true,
       // Real-catalog runs (docker/remote) spawn the Python workers on THIS host, so they need an
       // interpreter with macp_sdk installed — point EXAMPLE_AGENT_PYTHON_PATH at a venv's python.

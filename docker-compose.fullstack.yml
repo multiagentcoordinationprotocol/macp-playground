@@ -188,6 +188,9 @@ services:
       MACP_CONTROL_PLANE_URL: http://macp-control-plane:3001
       MACP_CONTROL_PLANE_API_KEY: demo-key
       # Real LLM key — agents (LangGraph/LangChain/CrewAI) call OpenAI.
+      # PLAYGROUND_ALLOW_LLM is the server-side opt-in: without it every launch is
+      # deterministic and the key is never handed to a worker (the hosted default).
+      PLAYGROUND_ALLOW_LLM: '1'
       OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY in the environment}
     depends_on:
       runtime:

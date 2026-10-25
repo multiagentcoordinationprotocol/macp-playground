@@ -193,7 +193,8 @@ Worker processes inherit the service's environment, so these are set on the play
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `OPENAI_API_KEY` | No | _(empty)_ | Used by the LangGraph / LangChain / CrewAI workers (`gpt-4o-mini`). Empty → each worker uses its deterministic fallback scorer and makes no LLM call. |
+| `PLAYGROUND_ALLOW_LLM` | No | _(unset)_ | Server-side opt-in for LLM-backed agents. **Unset → every `/examples/run` launch is deterministic**: hosting strips `OPENAI_API_KEY` (and every other key in `LLM_PROVIDER_ENV_KEYS`) from each spawned worker, whatever template the request names, so a deployment can hold a key without any anonymous launch spending it. Leave it unset on the hosted deployment; set `1` on a stack you own (`docker-compose.fullstack.yml` does). A template with `agentExecution: deterministic` stays deterministic either way. The resolved mode is returned as `compiled.scenarioMeta.agentExecution`, written to `runDescriptor.session.metadata.agentExecution`, and recorded per agent as `participantMetadata.agentExecution`. |
+| `OPENAI_API_KEY` | No | _(empty)_ | Used by the LangGraph / LangChain / CrewAI workers (`gpt-4o-mini`) **only when `PLAYGROUND_ALLOW_LLM` is set**. Empty, or opt-in unset → each worker uses its deterministic fallback scorer and makes no LLM call. |
 | `RISK_DECIDER_WAIT_ALL_TIMEOUT_MS` | No | `60000` | How long the risk-decider coordinator waits for every specialist before committing with the votes it has. |
 | `RISK_DECIDER_SUSPEND_HOLD_MS` | No | `8000` | How long the suspend/resume demo (`suspend` customerId sentinel) holds the session suspended before resuming. |
 

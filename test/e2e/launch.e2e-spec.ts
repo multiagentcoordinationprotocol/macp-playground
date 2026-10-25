@@ -229,5 +229,28 @@ describe('Launch (e2e)', () => {
           expect(metadata.runLabel).toBe('E2E test run');
         });
     });
+
+    // Hosted launches are deterministic unless the operator sets PLAYGROUND_ALLOW_LLM, which the
+    // shared e2e config leaves unset, so an ordinary (llm-by-default) template runs deterministic.
+    it('runs an ordinary template with deterministic agents when PLAYGROUND_ALLOW_LLM is unset', () => {
+      return request(app.getHttpServer())
+        .post('/examples/run')
+        .send({
+          scenarioRef: 'fraud/high-value-new-device@1.0.0',
+          submitToControlPlane: false,
+          inputs: {
+            transactionAmount: 3200,
+            deviceTrustScore: 0.12,
+            accountAgeDays: 5,
+            isVipCustomer: true,
+            priorChargebacks: 1
+          }
+        })
+        .expect(201)
+        .expect((res: any) => {
+          expect(res.body.compiled.scenarioMeta.agentExecution).toBe('deterministic');
+          expect(res.body.compiled.runDescriptor.session.metadata.agentExecution).toBe('deterministic');
+        });
+    });
   });
 });
