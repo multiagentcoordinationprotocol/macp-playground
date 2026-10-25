@@ -76,7 +76,7 @@ Dependency updates are automated by Dependabot (`.github/dependabot.yml`): month
 |---------|-----|---------|
 | Push to `main` | `:latest` | Rolling production tag |
 | Push to `main` / manual dispatch | `:sha-<commit>` | Immutable, for rollback |
-| Push of a `vX.Y.Z` git tag | `:X.Y.Z`, `:X.Y` (and `:sha-<commit>`) | Semver pin for self-hosters (W3.7 `macp-runtime/deploy/docker-compose.yml`) |
+| Push of a `vX.Y.Z` git tag | `:X.Y.Z`, `:X.Y` (and `:sha-<commit>`), `linux/amd64` + `linux/arm64` | Semver pin for self-hosters (W3.7 `macp-runtime/deploy/docker-compose.yml`) |
 
 Pull requests build the image for validation but do not push it. A manual `workflow_dispatch` run pushes a `:sha-<commit>` tag only; `:latest` moves only on `main`.
 

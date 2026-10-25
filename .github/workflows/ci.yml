@@ -216,6 +216,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Release tags also publish linux/arm64 so the W3.7 self-host compose runs natively on
+      # Apple-Silicon laptops. Emulated, so it is limited to tag runs; the gates below pull the
+      # runner's own (amd64) variant.
+      - name: Set up QEMU (release tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -256,6 +263,7 @@ jobs:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
           load: ${{ github.event_name == 'pull_request' }}
+          platforms: ${{ startsWith(github.ref, 'refs/tags/v') && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
