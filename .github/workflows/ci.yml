@@ -3,6 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
+    # A `vX.Y.Z` tag publishes `:X.Y.Z` and `:X.Y` (W3.7 self-host compose pins the playground by
+    # semver). The tag must equal package.json's version — the docker job checks that before pushing.
+    tags: ['v*.*.*']
   # No `branches:` filter on purpose. That key filters on the PR's BASE branch, so
   # `branches: [main]` silently gave **zero** CI to any stacked pull request — one opened
   # against another PR's branch rather than against `main`. Not a theoretical gap: it was
@@ -213,6 +216,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Release tags also publish linux/arm64 so the W3.7 self-host compose runs natively on
+      # Apple-Silicon laptops. Emulated, so it is limited to tag runs; the gates below pull the
+      # runner's own (amd64) variant.
+      - name: Set up QEMU (release tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -224,6 +234,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Release tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag v$tag does not match package.json version $pkg"
+            exit 1
+          fi
+
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -232,6 +253,8 @@ jobs:
           tags: |
             type=sha
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
 
       - name: Build (and push on non-PR events)
         id: build
@@ -240,6 +263,7 @@ jobs:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
           load: ${{ github.event_name == 'pull_request' }}
+          platforms: ${{ startsWith(github.ref, 'refs/tags/v') && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
