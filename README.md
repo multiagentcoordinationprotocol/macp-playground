@@ -206,6 +206,8 @@ docker compose -f docker-compose.dev.yml up
 OPENAI_API_KEY=sk-... NODE_AUTH_TOKEN=... docker compose -f docker-compose.fullstack.yml up --build
 ```
 
+LLM-backed agents need a server-side opt-in: the playground runs every launch with deterministic agents unless `PLAYGROUND_ALLOW_LLM=1` is set (the full-stack compose file sets it; the hosted deployment does not, so no hosted launch spends its `OPENAI_API_KEY`). See [docs/deployment.md](docs/deployment.md#agent-workers).
+
 
 `docker-compose.yml` and `docker-compose.dev.yml` build the image from the `Dockerfile`, which installs `@multiagentcoordinationprotocol/proto` from GitHub Packages: export `NODE_AUTH_TOKEN` (a GitHub token with `read:packages`) before `docker compose ... up --build`. Details and the plain `docker-compose.yml` defaults: [docs/deployment.md § Local Testing](docs/deployment.md#local-testing).
 

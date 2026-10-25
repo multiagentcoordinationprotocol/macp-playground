@@ -139,6 +139,16 @@ describe('AppConfigService', () => {
     expect(config.runtimeAllowInsecure).toBe(true);
   });
 
+  // Hosted launches must never spend the deployment's OPENAI_API_KEY unless an operator opts in.
+  it('allows LLM agents only when PLAYGROUND_ALLOW_LLM opts in', () => {
+    delete process.env.PLAYGROUND_ALLOW_LLM;
+    expect(new AppConfigService().allowLlmAgents).toBe(false);
+    process.env.PLAYGROUND_ALLOW_LLM = '0';
+    expect(new AppConfigService().allowLlmAgents).toBe(false);
+    process.env.PLAYGROUND_ALLOW_LLM = '1';
+    expect(new AppConfigService().allowLlmAgents).toBe(true);
+  });
+
   describe('auth config (MACP_AUTH_*)', () => {
     it('reads auth-service URL / timeout / TTL', () => {
       process.env.MACP_AUTH_SERVICE_URL = 'http://auth:3200';

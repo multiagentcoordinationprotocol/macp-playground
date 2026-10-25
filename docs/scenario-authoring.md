@@ -139,6 +139,10 @@ spec:
 > LLM spend. Any other value is a `COMPILATION_ERROR`. The fraud pack's
 > `showcase` template sets it; that is the template the console's public
 > `/showcase` page launches.
+>
+> `llm` is only honoured when the service runs with `PLAYGROUND_ALLOW_LLM=1`.
+> Without that server-side opt-in (the hosted default) every launch is
+> deterministic, whatever the template says — see `docs/deployment.md`.
 
 > **`extensions` (optional).** A mapping copied verbatim into the initiator's
 > `sessionStart.extensions`. Every value must be a **string**; protobuf `bytes`

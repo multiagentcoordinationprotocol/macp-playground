@@ -130,7 +130,40 @@ describe('ExampleRunService', () => {
     expect(result.sessionId).toBe(sessionId);
   });
 
-  it('asks hosting for deterministic agents only when the compiled scenario says so (W1.7)', async () => {
+  it('is deterministic by default: without PLAYGROUND_ALLOW_LLM even an llm template gets deterministic agents', async () => {
+    // config.allowLlmAgents is unset here, exactly like the hosted deployment.
+    compiler.compile.mockImplementation(async () => {
+      const c = buildCompiled();
+      c.scenarioMeta.agentExecution = 'llm';
+      return c;
+    });
+    const explicitLlm = await service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', inputs: {} });
+    expect(hosting.attach).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ deterministicAgents: true })
+    );
+    expect(explicitLlm.compiled.scenarioMeta.agentExecution).toBe('deterministic');
+
+    compiler.compile.mockImplementation(async () => buildCompiled());
+    const absent = await service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', inputs: {} });
+    expect(hosting.attach).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ deterministicAgents: true })
+    );
+    expect(absent.compiled.runDescriptor.session.metadata).toEqual(
+      expect.objectContaining({ agentExecution: 'deterministic' })
+    );
+    // The resolved mode reaches the CP-1 submission, not just the HTTP response.
+    expect(controlPlaneClient.submitRun).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        session: expect.objectContaining({ metadata: expect.objectContaining({ agentExecution: 'deterministic' }) })
+      })
+    );
+  });
+
+  it('asks hosting for deterministic agents only when the compiled scenario says so once PLAYGROUND_ALLOW_LLM opts in (W1.7)', async () => {
+    config = { autoBootstrapExampleAgents: true, allowLlmAgents: true } as AppConfigService;
+    service = new ExampleRunService(compiler, hosting, config, controlPlaneClient);
     compiler.compile.mockImplementation(async () => {
       const c = buildCompiled();
       c.scenarioMeta.agentExecution = 'deterministic';
@@ -143,11 +176,13 @@ describe('ExampleRunService', () => {
     );
 
     compiler.compile.mockImplementation(async () => buildCompiled());
-    await service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', inputs: {} });
+    const llm = await service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', inputs: {} });
     expect(hosting.attach).toHaveBeenLastCalledWith(
       expect.anything(),
       expect.objectContaining({ deterministicAgents: false })
     );
+    expect(llm.compiled.scenarioMeta.agentExecution).toBe('llm');
+    expect(llm.compiled.runDescriptor.session.metadata).toEqual(expect.objectContaining({ agentExecution: 'llm' }));
   });
 
   it('falls back to a freshly-generated UUID and mirrors it into runDescriptor.session.sessionId when compiled.sessionId is falsy', async () => {

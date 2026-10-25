@@ -227,7 +227,8 @@ export class ProcessExampleAgentHostProvider implements ExampleAgentHostProvider
         args: record.args,
         processAttached: true,
         launchMode: 'adapter',
-        adapterFramework: framework
+        adapterFramework: framework,
+        agentExecution: context.deterministicAgents ? 'deterministic' : 'llm'
       }
     };
   }

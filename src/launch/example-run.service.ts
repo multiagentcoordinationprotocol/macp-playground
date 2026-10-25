@@ -4,6 +4,7 @@ import { RunExampleRequest, RunExampleResult } from '../contracts/launch';
 import { AppConfigService } from '../config/app-config.service';
 import { CompilerService } from '../compiler/compiler.service';
 import { HostedExampleAgent } from '../contracts/example-agents';
+import { AgentExecution } from '../contracts/registry';
 import { AppException } from '../errors/app-exception';
 import { ErrorCode } from '../errors/error-codes';
 import { HostingService } from '../hosting/hosting.service';
@@ -23,6 +24,7 @@ export class ExampleRunService {
   async run(request: RunExampleRequest): Promise<RunExampleResult> {
     const compiled = await this.compiler.compile(request);
     this.applyRequestOverrides(compiled, request);
+    const agentExecution = this.applyAgentExecution(compiled);
     const shouldBootstrap = request.bootstrapAgents ?? this.config.autoBootstrapExampleAgents;
     const resolvedAgents = shouldBootstrap ? await this.hosting.resolve(compiled) : [];
 
@@ -70,7 +72,7 @@ export class ExampleRunService {
         policyHints: compiled.scenarioMeta.policyHints,
         ttlMs: session.ttlMs,
         sessionContext: compiled.scenarioMeta.sessionContext,
-        deterministicAgents: compiled.scenarioMeta.agentExecution === 'deterministic',
+        deterministicAgents: agentExecution === 'deterministic',
         participants: session.participants.map((p) => p.id),
         initiatorParticipantId: compiled.scenarioMeta.initiatorParticipantId,
         initiator: compiled.initiator
@@ -92,7 +94,7 @@ export class ExampleRunService {
     }
 
     this.logger.log(
-      `Scenario launched: sessionId=${sessionId} scenario=${compiled.display.scenarioRef} agents=${hostedAgents.length}`
+      `Scenario launched: sessionId=${sessionId} scenario=${compiled.display.scenarioRef} agents=${hostedAgents.length} agentExecution=${agentExecution}`
     );
 
     return {
@@ -141,6 +143,34 @@ export class ExampleRunService {
       HttpStatus.BAD_GATEWAY,
       { sessionId, failedParticipants: failures.map((agent) => agent.participantId) }
     );
+  }
+
+  /**
+   * Decide how this launch's hosted agents run, and record it where callers can see it.
+   *
+   * Deterministic is the default: a launch may use an LLM only when the template does not ask for
+   * `deterministic` AND the operator opted in with `PLAYGROUND_ALLOW_LLM`. `/examples/run` is the
+   * only route that spawns agents and the request body has no field that selects LLM execution, so
+   * this one check covers every launch the public console can make (/runs/new, /showcase, and any
+   * direct call with the console's API key). The resolved value is written to
+   * `scenarioMeta.agentExecution` and `runDescriptor.session.metadata.agentExecution` before the
+   * descriptor is snapshotted for CP-1, so the run record carries it too.
+   */
+  private applyAgentExecution(compiled: RunExampleResult['compiled']): AgentExecution {
+    const requested = compiled.scenarioMeta.agentExecution ?? 'llm';
+    const agentExecution: AgentExecution =
+      requested === 'deterministic' || !this.config.allowLlmAgents ? 'deterministic' : 'llm';
+    if (requested !== agentExecution) {
+      this.logger.log(
+        `agent_execution_forced_deterministic scenario=${compiled.display.scenarioRef} requested=${requested} reason=PLAYGROUND_ALLOW_LLM_unset`
+      );
+    }
+    compiled.scenarioMeta.agentExecution = agentExecution;
+    compiled.runDescriptor.session.metadata = {
+      ...(compiled.runDescriptor.session.metadata ?? {}),
+      agentExecution
+    };
+    return agentExecution;
   }
 
   private applyRequestOverrides(compiled: RunExampleResult['compiled'], request: RunExampleRequest): void {

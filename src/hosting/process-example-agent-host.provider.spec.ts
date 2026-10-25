@@ -276,9 +276,15 @@ describe('ProcessExampleAgentHostProvider', () => {
           bootstrapFilePath: '/tmp/bootstrap.json',
           healthStatus: 'starting'
         });
-        await provider.attach(buildDefinition(), buildBinding(), buildContext({ deterministicAgents }));
+        lastResult = await provider.attach(buildDefinition(), buildBinding(), buildContext({ deterministicAgents }));
         return (launch.mock.calls[0][0] as { env: Record<string, string> }).env;
       }
+      let lastResult: Awaited<ReturnType<typeof provider.attach>> | undefined;
+
+      it('records the execution mode in the hosted agent metadata so a run shows how its agents decided', async () => {
+        await launchedEnv(true);
+        expect(lastResult?.participantMetadata?.agentExecution).toBe('deterministic');
+      });
 
       it('strips every LLM provider key from the spawned agent when deterministicAgents is set', async () => {
         const env = await launchedEnv(true);
