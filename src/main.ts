@@ -51,7 +51,7 @@ async function bootstrap() {
     const swagger = new DocumentBuilder()
       .setTitle('MACP Playground')
       .setDescription('File-backed showcase catalog, compiler, and example-agent bootstrap service for MACP demos.')
-      .setVersion('0.2.0')
+      .setVersion('0.2.1')
       .build();
     const document = SwaggerModule.createDocument(app, swagger);
     SwaggerModule.setup('docs', app, document);
