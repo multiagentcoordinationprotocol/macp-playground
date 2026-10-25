@@ -3,6 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
+    # A `vX.Y.Z` tag publishes `:X.Y.Z` and `:X.Y` (W3.7 self-host compose pins the playground by
+    # semver). The tag must equal package.json's version — the docker job checks that before pushing.
+    tags: ['v*.*.*']
   # No `branches:` filter on purpose. That key filters on the PR's BASE branch, so
   # `branches: [main]` silently gave **zero** CI to any stacked pull request — one opened
   # against another PR's branch rather than against `main`. Not a theoretical gap: it was
@@ -224,6 +227,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Release tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag v$tag does not match package.json version $pkg"
+            exit 1
+          fi
+
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -232,6 +246,8 @@ jobs:
           tags: |
             type=sha
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
 
       - name: Build (and push on non-PR events)
         id: build

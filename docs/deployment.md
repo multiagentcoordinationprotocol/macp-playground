@@ -76,8 +76,11 @@ Dependency updates are automated by Dependabot (`.github/dependabot.yml`): month
 |---------|-----|---------|
 | Push to `main` | `:latest` | Rolling production tag |
 | Push to `main` / manual dispatch | `:sha-<commit>` | Immutable, for rollback |
+| Push of a `vX.Y.Z` git tag | `:X.Y.Z`, `:X.Y` (and `:sha-<commit>`) | Semver pin for self-hosters (W3.7 `macp-runtime/deploy/docker-compose.yml`) |
 
 Pull requests build the image for validation but do not push it. A manual `workflow_dispatch` run pushes a `:sha-<commit>` tag only; `:latest` moves only on `main`.
+
+**Cutting a release.** Bump `version` in `package.json` on `main`, then push the matching tag (`git tag v0.3.0 && git push origin v0.3.0`). The tag run executes every gate, refuses to push when the tag and `package.json` disagree, and never moves `:latest`. The image boots deterministic by default: it carries no LLM key and leaves `PLAYGROUND_ALLOW_LLM` unset.
 
 Images live at:
 ```
