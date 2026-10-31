@@ -13,8 +13,16 @@ crewai==0.203.2
 openai==2.54.0
 # Direct-agent-auth: agents open their own gRPC channel to the MACP runtime
 # via macp_sdk (RFC-MACP-0004 §4). 0.16 absorbed runtime 0.9.0 (registry codes on
-# every status, structured POLICY_DENIED denials); 0.17 adds the Task rule 2a
-# projection (a pre-assignment TaskReject is a personal decline) — inert here, since
-# every shipped scenario is Decision-mode. Capped below 0.18 so the next breaking
-# line is again a deliberate bump. Requires runtime >= 0.9.0.
-macp-sdk-python>=0.17.0,<0.18
+# every status, structured POLICY_DENIED denials). 0.18-0.22 are additive and none
+# changes a call the workers make: AsyncMacpClient (0.18), Appendix A receipts (0.19),
+# what_if_replay (0.20), runtime receipts get_decision_receipt / get_receipt_keys for
+# runtime 0.11 (0.21), and optional OTel send spans (0.22) — active only when
+# opentelemetry-api is importable AND a TracerProvider is installed. The image ships
+# the API transitively (crewai, chromadb). crewai WOULD install a global provider (its
+# EventListener calls Telemetry().set_tracer(), exporting to crewai's own endpoint), and
+# MACP send spans would then ride along; compliance-agent.json's OTEL_SDK_DISABLED /
+# CREWAI_DISABLE_TELEMETRY is what stops it (pinned by shipped-manifests.spec.ts). No
+# other worker installs one, so the spans are non-recording and no traceparent goes on
+# the wire. Capped below 0.23 so the
+# next line is again a deliberate bump. Requires runtime >= 0.9.0.
+macp-sdk-python>=0.22,<0.23

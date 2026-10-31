@@ -298,8 +298,8 @@ history, authentication and back-pressure on the watch side) see
 
 This plan has matching tasks in:
 
-- `macp-sdk-python` — PY-1..6 (secure default, `expected_sender`, cancel-callback binding). **Done upstream**; this repo pins `macp-sdk-python>=0.14.1,<0.15` (`agents/requirements.txt`).
-- `macp-sdk-typescript` — TS-1..5 (secure default, `expectedSender`, cancel-callback binding). **Done upstream**; this repo pins `macp-sdk-typescript@^0.14.1` (`package.json`).
+- `macp-sdk-python` — PY-1..6 (secure default, `expected_sender`, cancel-callback binding). **Done upstream**; this repo pins `macp-sdk-python>=0.22,<0.23` (`agents/requirements.txt`).
+- `macp-sdk-typescript` — TS-1..5 (secure default, `expectedSender`, cancel-callback binding). **Done upstream**; this repo pins `macp-sdk-typescript@^0.21.0` (`package.json`).
 - `macp-control-plane` — CP-1..15 (RunDescriptor contract, sessionId response, delete forged-envelope paths, observer-mode). **CP-1 landed** — the macp-playground submits `runDescriptor` to `POST /runs` via `ControlPlaneRunClient`; see "CP-1 run registration" above.
 - `macp-ui-console` — UI-1..5 (remove operator inject panel). Independent of macp-playground.
 
