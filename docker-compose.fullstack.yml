@@ -1,6 +1,6 @@
-# Full-stack real-LLM end-to-end harness (runtime 0.9.0; siblings pinned by commit).
+# Full-stack real-LLM end-to-end harness (runtime 0.11.0; siblings pinned by commit).
 #
-# Brings up the complete MACP stack on the runtime 0.9.0 release so the example
+# Brings up the complete MACP stack on the runtime 0.11.0 release so the example
 # agents (LangGraph / LangChain / CrewAI / custom) actually call a real LLM and
 # drive a decision session on the runtime, observed by the control-plane.
 #
@@ -8,13 +8,13 @@
 # them via the auth-service JWKS (issuer/audience must match). macp-playground
 # mints a per-agent JWT on every spawn; the control-plane mints an observer JWT.
 #
-# v0.5.0 note (still current at 0.9.0): the runtime image does not bake
+# v0.5.0 note (still current at 0.11.0): the runtime image does not bake
 # `MACP_ALLOW_INSECURE=1` and refuses to start without auth unless it is set
 # explicitly — we set it below (required for plaintext gRPC regardless of JWT
 # auth). The runtime also exposes a Prometheus text endpoint on
 # `MACP_METRICS_ADDR` (:9464 here).
 #
-# Runtime image tag: pinned to the released `:0.9.0` semver tag (immutable, multi-arch
+# Runtime image tag: pinned to the released `:0.11.0` semver tag (immutable, multi-arch
 # linux/amd64 + linux/arm64). Upstream's release-plz publishes `:X.Y.Z` / `:X.Y` images
 # (multiagentcoordinationprotocol/macp-runtime#184, fixed in v0.8.2). CI's
 # `runtime-policy-admission` job reads this exact tag, so bumping it here re-proves every
@@ -23,9 +23,20 @@
 # 0.9.0 is a WIRE break, unlike the 0.8.x patch series: new sessions bind semantics_rev 4,
 # every gRPC Status carries its registry code in `macp-error-code` metadata, a denied
 # commitment carries structured `denials`, and the proto moves to macp-proto 0.1.11.
-# The SDKs this repo pins (macp-sdk-typescript 0.17 / macp-sdk-python 0.17) both
-# require runtime >= 0.9.0 (0.16 was the line that first absorbed it). Upgrade notes:
+# Upgrade notes:
 # https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/deployment.md#upgrading-to-090
+#
+# 0.10 and 0.11 are additive on the wire. 0.10 adds the WhatIfReplay RPC and the `macp`
+# CLI; 0.10.1 makes the image's entrypoint hand MACP_DATA_DIR to the non-root `macp`
+# user (inert here: MACP_MEMORY_ONLY=1, no volume). 0.11 adds decision receipts
+# (RFC-MACP-0013 §13): GetDecisionReceipt / GetReceiptKeys, and `Initialize` advertises
+# `decision_receipt`. With no signing key the runtime serves UNSIGNED receipts with
+# issuer `runtime:<MACP_RUNTIME_ID>` — the default, and deliberately what this harness
+# runs; never commit a key here. Upgrade notes:
+# https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/deployment.md#upgrading-to-0110
+# The SDKs this repo pins (macp-sdk-typescript 0.21 / macp-sdk-python 0.22) carry the
+# receipt client methods; the playground itself does not call them (it returns at launch,
+# before a session resolves — outcomes are read through the control-plane).
 #
 # Prereqs:
 #   runtime      — pulled from ghcr (no local Rust build needed)
@@ -76,7 +87,7 @@ services:
     #     ({code, message, participants}); veto messages no longer embed participant ids.
     #   - registration refuses schema_version outside {1,2,3}, `rules.audit`, and any `x-`
     #     vendor key (this binary registers no RuleExtension).
-    image: ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.9.0
+    image: ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.11.0
     ports:
       - '50051:50051'
       # Prometheus text endpoint (v0.5.0+): curl http://localhost:9464/metrics
@@ -86,6 +97,10 @@ services:
       # v0.5.0+ does not bake this into the image — required for plaintext gRPC.
       MACP_ALLOW_INSECURE: '1'
       MACP_MEMORY_ONLY: '1'
+      # 0.11+: receipt issuer is `runtime:<MACP_RUNTIME_ID>`. Required only when a
+      # receipt signing key is set (none is: receipts stay unsigned); set anyway so the
+      # issuer names this deployment instead of the shared `runtime:macp-runtime` default.
+      MACP_RUNTIME_ID: macp-playground
       # Prometheus text endpoint (mode counters etc.) — observability demo surface.
       MACP_METRICS_ADDR: 0.0.0.0:9464
       # JWT validation against the auth-service JWKS.
