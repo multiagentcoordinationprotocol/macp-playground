@@ -22,4 +22,19 @@ describe('shipped agent manifests', () => {
     expect(manifest.host?.python).toBeUndefined();
     expect(manifest.host?.node).toBeUndefined();
   });
+
+  /**
+   * crewai installs a global OpenTelemetry TracerProvider (exporting to crewai's own endpoint) when
+   * a Crew is built, unless telemetry is disabled. Since macp-sdk-python 0.22 emits a CLIENT span per
+   * send() whenever opentelemetry-api is importable, dropping either key would ship MACP send spans to
+   * a third party and inject `traceparent` on the wire. See agents/requirements.txt.
+   */
+  it('keeps crewai telemetry (and with it the global OTel provider) off', () => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(MANIFESTS_DIR, 'compliance-agent.json'), 'utf8')) as {
+      framework: string;
+      host?: { env?: Record<string, string> };
+    };
+    expect(manifest.framework).toBe('crewai');
+    expect(manifest.host?.env).toMatchObject({ OTEL_SDK_DISABLED: 'true', CREWAI_DISABLE_TELEMETRY: 'true' });
+  });
 });

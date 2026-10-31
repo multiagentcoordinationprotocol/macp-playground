@@ -28,7 +28,8 @@
 #
 # 0.10 and 0.11 are additive on the wire. 0.10 adds the WhatIfReplay RPC and the `macp`
 # CLI; 0.10.1 makes the image's entrypoint hand MACP_DATA_DIR to the non-root `macp`
-# user (inert here: MACP_MEMORY_ONLY=1, no volume). 0.11 adds decision receipts
+# user and then drop to it via setpriv (harmless here: MACP_MEMORY_ONLY=1, no volume, and
+# the image's data dir is already macp-owned; CI's dry-run `docker run` takes the same path). 0.11 adds decision receipts
 # (RFC-MACP-0013 §13): GetDecisionReceipt / GetReceiptKeys, and `Initialize` advertises
 # `decision_receipt`. With no signing key the runtime serves UNSIGNED receipts with
 # issuer `runtime:<MACP_RUNTIME_ID>` — the default, and deliberately what this harness
