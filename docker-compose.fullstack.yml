@@ -1,6 +1,6 @@
-# Full-stack real-LLM end-to-end harness (runtime 0.12.0; siblings pinned by commit).
+# Full-stack real-LLM end-to-end harness (runtime 0.13.0; siblings pinned by commit).
 #
-# Brings up the complete MACP stack on the runtime 0.12.0 release so the example
+# Brings up the complete MACP stack on the runtime 0.13.0 release so the example
 # agents (LangGraph / LangChain / CrewAI / custom) actually call a real LLM and
 # drive a decision session on the runtime, observed by the control-plane.
 #
@@ -8,13 +8,13 @@
 # them via the auth-service JWKS (issuer/audience must match). macp-playground
 # mints a per-agent JWT on every spawn; the control-plane mints an observer JWT.
 #
-# v0.5.0 note (still current at 0.12.0): the runtime image does not bake
+# v0.5.0 note (still current at 0.13.0): the runtime image does not bake
 # `MACP_ALLOW_INSECURE=1` and refuses to start without auth unless it is set
 # explicitly — we set it below (required for plaintext gRPC regardless of JWT
 # auth). The runtime also exposes a Prometheus text endpoint on
 # `MACP_METRICS_ADDR` (:9464 here).
 #
-# Runtime image tag: pinned to the released `:0.12.0` semver tag (immutable, multi-arch
+# Runtime image tag: pinned to the released `:0.13.0` semver tag (immutable, multi-arch
 # linux/amd64 + linux/arm64). Upstream's release-plz publishes `:X.Y.Z` / `:X.Y` images
 # (multiagentcoordinationprotocol/macp-runtime#184, fixed in v0.8.2). CI's
 # `runtime-policy-admission` job reads this exact tag, so bumping it here re-proves every
@@ -49,13 +49,17 @@
 # take a few seconds longer. Upgrade notes:
 # https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/MIGRATING.md
 #
+# 0.13 has no wire or proto change: it moves the runtime's `otel` feature to OpenTelemetry 0.33 /
+# tower-http 0.7 (this harness exports no telemetry), and it includes 0.12.1's stricter
+# policy-rule shape checks, which CI's runtime-policy-admission job re-proves against.
+#
 # Prereqs:
 #   runtime       — pulled from ghcr (no local Rust build needed)
 #   control-plane — pulled from ghcr, pinned by commit: `sha-a08add3`
 #                   (macp-control-plane#135: SDK 0.21, runtime 0.11.0 alignment, on top of
 #                   #134's receipt routes and #118's serialized per-run event transactions).
 #                   Since #123 the CP publishes multi-arch (linux/amd64 + linux/arm64) images.
-#                   Its TESTED_RUNTIME_RANGE stops below 0.12, so against runtime 0.12.0 it logs
+#                   Its TESTED_RUNTIME_RANGE stops below 0.12, so against runtime 0.13.0 it logs
 #                   a one-off "outside the tested range" warning. That is expected and harmless here;
 #                   a later CP re-pin clears it.
 #   auth-service  — built locally, tagged with the exact sibling commit (it publishes no image):
@@ -94,7 +98,7 @@ services:
     #     ({code, message, participants}); veto messages no longer embed participant ids.
     #   - registration refuses schema_version outside {1,2,3}, `rules.audit`, and any `x-`
     #     vendor key (this binary registers no RuleExtension).
-    image: ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.12.0
+    image: ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.13.0
     ports:
       - '50051:50051'
       # Prometheus text endpoint (v0.5.0+): curl http://localhost:9464/metrics
