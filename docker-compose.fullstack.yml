@@ -1,6 +1,6 @@
-# Full-stack real-LLM end-to-end harness (runtime 0.11.0; siblings pinned by commit).
+# Full-stack real-LLM end-to-end harness (runtime 0.12.0; siblings pinned by commit).
 #
-# Brings up the complete MACP stack on the runtime 0.11.0 release so the example
+# Brings up the complete MACP stack on the runtime 0.12.0 release so the example
 # agents (LangGraph / LangChain / CrewAI / custom) actually call a real LLM and
 # drive a decision session on the runtime, observed by the control-plane.
 #
@@ -8,13 +8,13 @@
 # them via the auth-service JWKS (issuer/audience must match). macp-playground
 # mints a per-agent JWT on every spawn; the control-plane mints an observer JWT.
 #
-# v0.5.0 note (still current at 0.11.0): the runtime image does not bake
+# v0.5.0 note (still current at 0.12.0): the runtime image does not bake
 # `MACP_ALLOW_INSECURE=1` and refuses to start without auth unless it is set
 # explicitly — we set it below (required for plaintext gRPC regardless of JWT
 # auth). The runtime also exposes a Prometheus text endpoint on
 # `MACP_METRICS_ADDR` (:9464 here).
 #
-# Runtime image tag: pinned to the released `:0.11.0` semver tag (immutable, multi-arch
+# Runtime image tag: pinned to the released `:0.12.0` semver tag (immutable, multi-arch
 # linux/amd64 + linux/arm64). Upstream's release-plz publishes `:X.Y.Z` / `:X.Y` images
 # (multiagentcoordinationprotocol/macp-runtime#184, fixed in v0.8.2). CI's
 # `runtime-policy-admission` job reads this exact tag, so bumping it here re-proves every
@@ -39,23 +39,29 @@
 # receipt client methods; the playground itself does not call them (it returns at launch,
 # before a session resolves — outcomes are read through the control-plane).
 #
+# 0.12 adds OpenTelemetry SERVER spans and an opt-in HTTP/JSON listener
+# (`MACP_HTTP_BIND_ADDR`, off by default). This harness enables neither. Its wire changes
+# do not reach this stack: WatchPolicies now requires a credential (nothing here calls it;
+# the control-plane authenticates every call with its observer JWT anyway), and a
+# StreamSession resume below the compacted base ends with FAILED_PRECONDITION /
+# HISTORY_UNAVAILABLE (MACP_MEMORY_ONLY=1, nothing is compacted). The binary now drains on
+# SIGTERM for up to MACP_SHUTDOWN_DRAIN_SECS (default 10), so `docker compose down` can
+# take a few seconds longer. Upgrade notes:
+# https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/MIGRATING.md
+#
 # Prereqs:
-#   runtime      — pulled from ghcr (no local Rust build needed)
-#   control-plane / auth-service — built locally, tagged with the exact sibling commit:
-#     macp-control-plane:778258e  (macp-control-plane#118: per-run event transactions
-#                                  serialized, so concurrent events no longer drop from
-#                                  the projection; on top of #114's runtime 0.9.0 alignment)
+#   runtime       — pulled from ghcr (no local Rust build needed)
+#   control-plane — pulled from ghcr, pinned by commit: `sha-a08add3`
+#                   (macp-control-plane#135: SDK 0.21, runtime 0.11.0 alignment, on top of
+#                   #134's receipt routes and #118's serialized per-run event transactions).
+#                   Since #123 the CP publishes multi-arch (linux/amd64 + linux/arm64) images.
+#                   Its TESTED_RUNTIME_RANGE stops below 0.12, so against runtime 0.12.0 it logs
+#                   a one-off "outside the tested range" warning. That is expected and harmless here;
+#                   a later CP re-pin clears it.
+#   auth-service  — built locally, tagged with the exact sibling commit (it publishes no image):
 #     macp-auth-service:5270353   (auth-service#41)
-#   Neither sibling publishes semver image tags — GHCR carries only `sha-<commit>` tags,
-#   and macp-control-plane's are linux/amd64-only — so these follow the local-build
-#   convention, with the commit as the tag so the pin is unambiguous. Build from a clean
-#   tree (a dirty checkout would otherwise leak into the image):
-#     export GITHUB_TOKEN=$(gh auth token)   # read:packages, for the private proto package
-#     git -C ../macp-control-plane archive 778258e | \
-#       docker build --secret id=npm_token,env=GITHUB_TOKEN -t macp-control-plane:778258e -
 #     git -C ../auth-service archive 5270353 | docker build -t macp-auth-service:5270353 -
-#   On linux/amd64 hosts `ghcr.io/multiagentcoordinationprotocol/<name>:sha-<commit>` is the
-#   same build, published. macp-ui-console (6e16db0, #60) is not part of this stack.
+#   macp-ui-console (6e16db0, #60) is not part of this stack.
 #   playground — built from this checkout (`docker compose ... up --build`; needs NODE_AUTH_TOKEN)
 #
 # Run:  OPENAI_API_KEY=sk-... docker compose -f docker-compose.fullstack.yml up
@@ -88,7 +94,7 @@ services:
     #     ({code, message, participants}); veto messages no longer embed participant ids.
     #   - registration refuses schema_version outside {1,2,3}, `rules.audit`, and any `x-`
     #     vendor key (this binary registers no RuleExtension).
-    image: ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.11.0
+    image: ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.12.0
     ports:
       - '50051:50051'
       # Prometheus text endpoint (v0.5.0+): curl http://localhost:9464/metrics
@@ -141,7 +147,7 @@ services:
       retries: 10
 
   migrate:
-    image: macp-control-plane:778258e
+    image: ghcr.io/multiagentcoordinationprotocol/macp-control-plane:sha-a08add3
     command: ['node', 'dist/db/migrate.js']
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/macp_control_plane
@@ -150,7 +156,7 @@ services:
         condition: service_healthy
 
   macp-control-plane:
-    image: macp-control-plane:778258e
+    image: ghcr.io/multiagentcoordinationprotocol/macp-control-plane:sha-a08add3
     ports:
       - '3001:3001'
     environment:
