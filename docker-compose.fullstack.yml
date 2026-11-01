@@ -55,6 +55,9 @@
 #                   (macp-control-plane#135: SDK 0.21, runtime 0.11.0 alignment, on top of
 #                   #134's receipt routes and #118's serialized per-run event transactions).
 #                   Since #123 the CP publishes multi-arch (linux/amd64 + linux/arm64) images.
+#                   Its TESTED_RUNTIME_RANGE stops below 0.12, so against runtime 0.12.0 it logs
+#                   a one-off "outside the tested range" warning. That is expected and harmless here;
+#                   a later CP re-pin clears it.
 #   auth-service  — built locally, tagged with the exact sibling commit (it publishes no image):
 #     macp-auth-service:5270353   (auth-service#41)
 #     git -C ../auth-service archive 5270353 | docker build -t macp-auth-service:5270353 -
