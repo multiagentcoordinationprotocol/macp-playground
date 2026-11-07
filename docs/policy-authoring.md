@@ -411,7 +411,9 @@ Checklist:
 
 The spawn-time JWT mint hit the auth-service and got a non-2xx response
 (or timed out). Check `MACP_AUTH_SERVICE_URL`, `MACP_AUTH_SERVICE_TIMEOUT_MS`,
-and the auth-service logs.
+and the auth-service logs. A 401 (`reason=http_401` in the playground log) means
+`MACP_AUTH_SERVICE_API_KEY` is unset or is not one of the auth-service's
+`TOKEN_ISSUER_KEYS`.
 
 ## Local validation warnings
 

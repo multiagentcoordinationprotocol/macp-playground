@@ -33,6 +33,7 @@ export async function createIntegrationTestApp(
     runtimeTls: boolean;
     runtimeAllowInsecure: boolean;
     authServiceUrl: string;
+    authServiceApiKey: string;
     authServiceTimeoutMs: number;
     authTokenTtlSeconds: number;
     authScopeOverrides: Record<string, Record<string, unknown>>;
@@ -140,6 +141,8 @@ export async function createIntegrationTestApp(
       authServiceUrl:
         overrides?.authServiceUrl ??
         (isRealStack ? (process.env.MACP_AUTH_SERVICE_URL ?? 'http://localhost:3200') : 'http://auth-stub:3200'),
+      authServiceApiKey:
+        overrides?.authServiceApiKey ?? (isRealStack ? (process.env.MACP_AUTH_SERVICE_API_KEY ?? '') : ''),
       authServiceTimeoutMs: overrides?.authServiceTimeoutMs ?? 5000,
       authTokenTtlSeconds: overrides?.authTokenTtlSeconds ?? 3600,
       authScopeOverrides: overrides?.authScopeOverrides ?? {},

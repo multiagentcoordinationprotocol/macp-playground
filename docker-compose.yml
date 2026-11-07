@@ -15,6 +15,9 @@ services:
       # Required to boot (never contacted until an agent spawns). Defaults to an
       # auth-service on the host; for the whole stack use docker-compose.fullstack.yml.
       MACP_AUTH_SERVICE_URL: ${MACP_AUTH_SERVICE_URL:-http://host.docker.internal:3200}
+      # The auth-service's token-issuer key (one of its TOKEN_ISSUER_KEYS). A production
+      # auth-service rejects mints without it; empty only works against a dev one.
+      MACP_AUTH_SERVICE_API_KEY: ${MACP_AUTH_SERVICE_API_KEY:-}
       MACP_RUNTIME_ADDRESS: ${MACP_RUNTIME_ADDRESS:-}
       # Defaults match the app (TLS on). For a plaintext local runtime set both:
       # MACP_RUNTIME_TLS=false MACP_RUNTIME_ALLOW_INSECURE=true

@@ -76,6 +76,36 @@ describe('AuthTokenMinterService', () => {
         ttl_seconds: 900,
         scopes: { can_start_sessions: true, allowed_modes: ['macp.mode.decision.v1'] }
       });
+      // No token-issuer key configured → no Authorization header.
+      expect((calls[0].init.headers as Record<string, string>).authorization).toBeUndefined();
+    });
+
+    it('sends MACP_AUTH_SERVICE_API_KEY as a Bearer token-issuer key when configured', async () => {
+      const calls: FetchArgs[] = [];
+      global.fetch = jest.fn().mockImplementation((url, init) => {
+        calls.push({ url: url as string, init: init as RequestInit });
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ token: 'jwt-key', sender: 'risk-agent', expires_in_seconds: 900 }),
+          text: async () => ''
+        });
+      }) as unknown as typeof fetch;
+
+      const minter = new AuthTokenMinterService(stubConfig({ authServiceApiKey: 'issuer-key-1' }));
+      await minter.mintToken('risk-agent');
+
+      const headers = calls[0].init.headers as Record<string, string>;
+      expect(headers.authorization).toBe('Bearer issuer-key-1');
+      expect(headers['content-type']).toBe('application/json');
+    });
+
+    it('maps a 401 from an auth-service that rejects the token-issuer key to AUTH_MINT_FAILED', async () => {
+      global.fetch = fetchFail(401, '{"error":"missing or invalid token-issuer key"}');
+      const minter = new AuthTokenMinterService(stubConfig({ authServiceApiKey: 'stale-key' }));
+      await expect(minter.mintToken('risk-agent')).rejects.toMatchObject({
+        errorCode: ErrorCode.AUTH_MINT_FAILED
+      });
     });
 
     it('omits scopes key when no scopes are passed', async () => {

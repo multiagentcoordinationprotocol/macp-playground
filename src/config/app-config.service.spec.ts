@@ -191,6 +191,23 @@ describe('AppConfigService', () => {
       expect(initError()).toBeUndefined();
     });
 
+    it('warns (does not refuse) in production without MACP_AUTH_SERVICE_API_KEY', () => {
+      delete process.env.MACP_AUTH_SERVICE_API_KEY;
+      expect(initError()).toBeUndefined();
+      expect(Logger.prototype.warn).toHaveBeenCalledWith(
+        expect.stringContaining('MACP_AUTH_SERVICE_API_KEY is not set')
+      );
+    });
+
+    it('reads MACP_AUTH_SERVICE_API_KEY (trimmed) and does not warn when it is set', () => {
+      process.env.MACP_AUTH_SERVICE_API_KEY = ' issuer-key ';
+      const config = new AppConfigService();
+      expect(config.authServiceApiKey).toBe('issuer-key');
+      config.onModuleInit();
+      expect(Logger.prototype.warn).not.toHaveBeenCalledWith(expect.stringContaining('MACP_AUTH_SERVICE_API_KEY'));
+      delete process.env.MACP_AUTH_SERVICE_API_KEY;
+    });
+
     it('reads TRUSTED_PROXY_HOPS (default 0, never negative)', () => {
       delete process.env.TRUSTED_PROXY_HOPS;
       expect(new AppConfigService().trustedProxyHops).toBe(0);

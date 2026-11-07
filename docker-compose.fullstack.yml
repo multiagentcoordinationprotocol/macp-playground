@@ -82,6 +82,11 @@ services:
       MACP_AUTH_AUDIENCE: macp-runtime
       MACP_AUTH_DEFAULT_TTL_SECONDS: '3600'
       MACP_AUTH_MAX_TTL_SECONDS: '7200'
+      # LOCAL PLACEHOLDER, not a secret: the shared key POST /tokens requires (the image runs
+      # NODE_ENV=production, so newer auth-service images refuse to boot without it). Callers
+      # below send the same value as MACP_AUTH_SERVICE_API_KEY. Generate a real one with
+      # `openssl rand -hex 32` for anything reachable beyond your machine.
+      TOKEN_ISSUER_KEYS: ${TOKEN_ISSUER_KEY:-local-dev-token-issuer-key}
     healthcheck:
       test: ['CMD', 'node', '-e', "require('http').get('http://localhost:3200/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 3s
@@ -172,6 +177,7 @@ services:
       RUNTIME_ALLOW_INSECURE: 'true'
       RUNTIME_DEV_AGENT_ID: macp-control-plane
       MACP_AUTH_SERVICE_URL: http://auth-service:3200
+      MACP_AUTH_SERVICE_API_KEY: ${TOKEN_ISSUER_KEY:-local-dev-token-issuer-key}
       # Production guards: the CP refuses to boot without these set.
       AUTH_API_KEYS: demo-key
       STREAM_HUB_STRATEGY: memory
@@ -209,6 +215,7 @@ services:
       MACP_RUNTIME_ALLOW_INSECURE: 'true'
       # AUTH-2: every spawn mints a JWT via the auth-service.
       MACP_AUTH_SERVICE_URL: http://auth-service:3200
+      MACP_AUTH_SERVICE_API_KEY: ${TOKEN_ISSUER_KEY:-local-dev-token-issuer-key}
       MACP_AUTH_TOKEN_TTL_SECONDS: '3600'
       # CP-1: best-effort POST /runs registration — same demo-key AUTH_API_KEYS
       # enforces on the control-plane's own AuthGuard above.

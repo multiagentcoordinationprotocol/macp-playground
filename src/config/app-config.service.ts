@@ -139,6 +139,12 @@ export class AppConfigService implements OnModuleInit {
    */
   readonly authServiceUrl: string = process.env.MACP_AUTH_SERVICE_URL ?? '';
   /**
+   * Shared token-issuer key the auth-service requires on `POST /tokens` (one of its
+   * `TOKEN_ISSUER_KEYS`), sent as `Authorization: Bearer <key>`. Empty sends no header,
+   * which only an auth-service with no keys (dev/test) accepts.
+   */
+  readonly authServiceApiKey: string = (process.env.MACP_AUTH_SERVICE_API_KEY ?? '').trim();
+  /**
    * Validated the same way as `controlPlaneTimeoutMs` below — `AbortSignal.timeout()`
    * throws a `RangeError` on an invalid value, which here is worse than a misleading
    * log line: `AuthTokenMinterService.requestToken` treats that throw as a network
@@ -240,6 +246,14 @@ export class AppConfigService implements OnModuleInit {
     if (this.nodeEnv !== 'production') return;
     if (this.authApiKeys.length === 0) {
       throw configError('AUTH_API_KEYS is required when NODE_ENV=production: every route but /healthz needs a key');
+    }
+    if (!this.authServiceApiKey) {
+      // Warn, not throw: a production auth-service rejects unauthenticated mints (401), so
+      // every agent spawn would fail with AUTH_MINT_FAILED, but an older auth-service without
+      // TOKEN_ISSUER_KEYS still accepts them.
+      this.logger.warn(
+        'MACP_AUTH_SERVICE_API_KEY is not set: a production auth-service rejects POST /tokens without its token-issuer key (401)'
+      );
     }
     if (this.allowLlmAgents && !this.llmBudget.databaseUrl) {
       throw configError(

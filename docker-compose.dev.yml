@@ -19,6 +19,8 @@ services:
       # AUTH-2: every spawn mints a JWT via the auth-service sidecar below.
       # See plans/auth-2-jwt-integration.md.
       MACP_AUTH_SERVICE_URL: 'http://auth-service:3200'
+      # LOCAL PLACEHOLDER: must equal the auth-service's TOKEN_ISSUER_KEYS below.
+      MACP_AUTH_SERVICE_API_KEY: 'local-dev-token-issuer-key'
       MACP_AUTH_TOKEN_TTL_SECONDS: '3600'
     depends_on:
       - auth-service
@@ -40,3 +42,5 @@ services:
       MACP_AUTH_AUDIENCE: macp-runtime
       MACP_AUTH_DEFAULT_TTL_SECONDS: '900'
       MACP_AUTH_MAX_TTL_SECONDS: '3600'
+      # LOCAL PLACEHOLDER, not a secret: POST /tokens requires it as `Authorization: Bearer`.
+      TOKEN_ISSUER_KEYS: 'local-dev-token-issuer-key'
