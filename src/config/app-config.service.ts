@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, HttpStatus } from '@nestjs/common';
 import { AppException } from '../errors/app-exception';
 import { ErrorCode } from '../errors/error-codes';
+import { LlmBudgetConfig, readLlmBudgetConfig } from '../llm-budget/llm-budget.config';
 
 function configError(message: string): AppException {
   return new AppException(ErrorCode.INVALID_CONFIG, message, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -87,14 +88,26 @@ export class AppConfigService implements OnModuleInit {
   readonly exampleAgentPythonPath = process.env.EXAMPLE_AGENT_PYTHON_PATH ?? 'python3';
   readonly exampleAgentNodePath = process.env.EXAMPLE_AGENT_NODE_PATH ?? process.execPath;
   /**
-   * Server-side opt-in for LLM-backed example agents. Unset (the default, and the hosted deployment)
-   * → every `/examples/run` launch is deterministic: hosting strips the LLM provider keys from each
-   * spawned agent, so a deployment-wide `OPENAI_API_KEY` is never spent by a launch arriving through
-   * the public console, whatever template it names. Set `PLAYGROUND_ALLOW_LLM=1` on a stack you
-   * own (local `docker-compose.fullstack.yml` does) to let templates without
-   * `agentExecution: deterministic` use the key. A template's own `deterministic` always wins.
+   * Server-side opt-in for LLM-backed example agents. Unset (the default, and what the image ships
+   * with) → every `/examples/run` launch is deterministic: hosting strips the LLM provider keys from
+   * each spawned agent, so a deployment-wide `OPENAI_API_KEY` is never spent by a launch arriving
+   * through the public console, whatever template it names. Set `PLAYGROUND_ALLOW_LLM=1` on a stack
+   * you own (local `docker-compose.fullstack.yml` does, and so does the project's Railway instance,
+   * through Doppler) to let templates without `agentExecution: deterministic` use the key. A
+   * template's own `deterministic` always wins.
    */
   readonly allowLlmAgents = readBoolean('PLAYGROUND_ALLOW_LLM', false);
+  /**
+   * Limits on LLM-backed launches (per client IP, and global per day / month) and where their
+   * counters live. See `LlmBudgetService` and docs/deployment.md § LLM launch limits.
+   */
+  readonly llmBudget: LlmBudgetConfig = readLlmBudgetConfig();
+  /**
+   * Reverse proxies in front of this service that append to `X-Forwarded-For` (Railway's edge: 1).
+   * The client address for the request throttle and for callers without the console's
+   * `X-MACP-Client-IP` is the entry this many hops from the right. 0 (default): the socket peer.
+   */
+  readonly trustedProxyHops = Math.max(0, Math.trunc(readNumber('TRUSTED_PROXY_HOPS', 0)));
 
   /**
    * gRPC endpoint that spawned agents connect to directly. Required —
@@ -191,6 +204,12 @@ export class AppConfigService implements OnModuleInit {
       );
     }
     this.validateAuthConfig();
+    this.validateProductionGuards();
+    this.logger.log(
+      `llm limits: perIp=${this.llmBudget.perIpBurst}/${this.llmBudget.perIpBurstWindowMs}ms,${this.llmBudget.perIpDaily}/day ` +
+        `global=${this.llmBudget.globalDaily}/day,${this.llmBudget.globalMonthly}/month onLimit=${this.llmBudget.onLimit} ` +
+        `store=${this.llmBudget.databaseUrl ? 'postgres' : 'memory'} trustedProxyHops=${this.trustedProxyHops}`
+    );
     this.logger.log(`auth: jwt (auth-service=${this.authServiceUrl})`);
   }
 
@@ -211,6 +230,23 @@ export class AppConfigService implements OnModuleInit {
       return defaultValue;
     }
     return value;
+  }
+
+  /**
+   * A deployed (NODE_ENV=production) service must never run open or with LLM counters that a
+   * restart or a second replica would silently reset.
+   */
+  private validateProductionGuards(): void {
+    if (this.nodeEnv !== 'production') return;
+    if (this.authApiKeys.length === 0) {
+      throw configError('AUTH_API_KEYS is required when NODE_ENV=production: every route but /healthz needs a key');
+    }
+    if (this.allowLlmAgents && !this.llmBudget.databaseUrl) {
+      throw configError(
+        'LLM_USAGE_DATABASE_URL is required when NODE_ENV=production and PLAYGROUND_ALLOW_LLM is set: ' +
+          'in-memory LLM launch counters reset on restart and are per replica'
+      );
+    }
   }
 
   private validateAuthConfig(): void {

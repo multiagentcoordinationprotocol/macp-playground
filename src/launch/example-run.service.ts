@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { RunExampleRequest, RunExampleResult } from '../contracts/launch';
+import { RunExampleRequest, RunExampleResult, ScenarioMeta } from '../contracts/launch';
 import { AppConfigService } from '../config/app-config.service';
 import { CompilerService } from '../compiler/compiler.service';
 import { HostedExampleAgent } from '../contracts/example-agents';
@@ -8,6 +8,7 @@ import { AgentExecution } from '../contracts/registry';
 import { AppException } from '../errors/app-exception';
 import { ErrorCode } from '../errors/error-codes';
 import { HostingService } from '../hosting/hosting.service';
+import { LlmBudgetService } from '../llm-budget/llm-budget.service';
 import { ControlPlaneRunClient } from './control-plane-run-client.service';
 
 @Injectable()
@@ -18,14 +19,16 @@ export class ExampleRunService {
     private readonly compiler: CompilerService,
     private readonly hosting: HostingService,
     private readonly config: AppConfigService,
-    private readonly controlPlaneClient: ControlPlaneRunClient
+    private readonly controlPlaneClient: ControlPlaneRunClient,
+    private readonly llmBudget: LlmBudgetService
   ) {}
 
-  async run(request: RunExampleRequest): Promise<RunExampleResult> {
+  /** `clientIp` keys the per-client LLM limits; see `resolveClientIp`. */
+  async run(request: RunExampleRequest, clientIp = 'unknown'): Promise<RunExampleResult> {
     const compiled = await this.compiler.compile(request);
     this.applyRequestOverrides(compiled, request);
-    const agentExecution = this.applyAgentExecution(compiled);
     const shouldBootstrap = request.bootstrapAgents ?? this.config.autoBootstrapExampleAgents;
+    const agentExecution = await this.applyAgentExecution(compiled, shouldBootstrap, clientIp);
     const resolvedAgents = shouldBootstrap ? await this.hosting.resolve(compiled) : [];
 
     if (!shouldBootstrap) {
@@ -149,26 +152,58 @@ export class ExampleRunService {
    * Decide how this launch's hosted agents run, and record it where callers can see it.
    *
    * Deterministic is the default: a launch may use an LLM only when the template does not ask for
-   * `deterministic` AND the operator opted in with `PLAYGROUND_ALLOW_LLM`. `/examples/run` is the
+   * `deterministic`, the operator opted in with `PLAYGROUND_ALLOW_LLM`, AND the LLM budget grants
+   * it (per client IP and global per day / month; see `LlmBudgetService`). `/examples/run` is the
    * only route that spawns agents and the request body has no field that selects LLM execution, so
    * this one check covers every launch the public console can make (/runs/new, /showcase, and any
-   * direct call with the console's API key). The resolved value is written to
-   * `scenarioMeta.agentExecution` and `runDescriptor.session.metadata.agentExecution` before the
-   * descriptor is snapshotted for CP-1, so the run record carries it too.
+   * direct call with the console's API key). A launch that spawns no agents spends nothing and is
+   * not counted. When a limit is hit, `LLM_LIMIT_ACTION=fallback` runs the launch deterministic
+   * and records why in `agentExecutionFallback`; `reject` refuses it with 429.
+   *
+   * The resolved value is written to `scenarioMeta.agentExecution` and
+   * `runDescriptor.session.metadata.agentExecution` before the descriptor is snapshotted for CP-1,
+   * so the run record carries it too.
    */
-  private applyAgentExecution(compiled: RunExampleResult['compiled']): AgentExecution {
+  private async applyAgentExecution(
+    compiled: RunExampleResult['compiled'],
+    spawnsAgents: boolean,
+    clientIp: string
+  ): Promise<AgentExecution> {
     const requested = compiled.scenarioMeta.agentExecution ?? 'llm';
-    const agentExecution: AgentExecution =
+    let agentExecution: AgentExecution =
       requested === 'deterministic' || !this.config.allowLlmAgents ? 'deterministic' : 'llm';
     if (requested !== agentExecution) {
       this.logger.log(
         `agent_execution_forced_deterministic scenario=${compiled.display.scenarioRef} requested=${requested} reason=PLAYGROUND_ALLOW_LLM_unset`
       );
     }
+
+    let fallback: ScenarioMeta['agentExecutionFallback'];
+    if (agentExecution === 'llm' && spawnsAgents) {
+      const decision = await this.llmBudget.reserve(clientIp);
+      if (!decision.granted) {
+        if (this.llmBudget.budget.onLimit === 'reject') {
+          throw new AppException(
+            ErrorCode.LLM_LIMIT_EXCEEDED,
+            `LLM launch limit reached (${decision.limit}); try again later`,
+            HttpStatus.TOO_MANY_REQUESTS,
+            { limit: decision.limit }
+          );
+        }
+        agentExecution = 'deterministic';
+        fallback = { reason: 'llm_limit', limit: decision.limit };
+        this.logger.log(
+          `agent_execution_forced_deterministic scenario=${compiled.display.scenarioRef} requested=${requested} reason=llm_limit limit=${decision.limit}`
+        );
+      }
+    }
+
     compiled.scenarioMeta.agentExecution = agentExecution;
+    if (fallback) compiled.scenarioMeta.agentExecutionFallback = fallback;
     compiled.runDescriptor.session.metadata = {
       ...(compiled.runDescriptor.session.metadata ?? {}),
-      agentExecution
+      agentExecution,
+      ...(fallback ? { agentExecutionFallback: `${fallback.reason}:${fallback.limit}` } : {})
     };
     return agentExecution;
   }

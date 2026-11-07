@@ -10,6 +10,8 @@ services:
     environment:
       NODE_ENV: production
       PACKS_DIR: /app/packs
+      # Production refuses to boot without it: every route but /healthz needs x-api-key.
+      AUTH_API_KEYS: ${AUTH_API_KEYS:?set AUTH_API_KEYS (comma-separated API keys)}
       # Required to boot (never contacted until an agent spawns). Defaults to an
       # auth-service on the host; for the whole stack use docker-compose.fullstack.yml.
       MACP_AUTH_SERVICE_URL: ${MACP_AUTH_SERVICE_URL:-http://host.docker.internal:3200}

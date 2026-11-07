@@ -1,5 +1,5 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './auth/auth.module';
 import { AgentProfileService } from './catalog/agent-profile.service';
@@ -11,6 +11,7 @@ import { CatalogController } from './controllers/catalog.controller';
 import { ExamplesController } from './controllers/examples.controller';
 import { HealthController } from './controllers/health.controller';
 import { LaunchController } from './controllers/launch.controller';
+import { LlmUsageController } from './controllers/llm-usage.controller';
 import { ExampleAgentCatalogService } from './example-agents/example-agent-catalog.service';
 import { EXAMPLE_AGENT_HOST_PROVIDER } from './hosting/example-agent-host.provider';
 import { HostingService } from './hosting/hosting.service';
@@ -21,6 +22,11 @@ import { ManifestValidator } from './hosting/manifest-validator';
 import { ControlPlaneRunClient } from './launch/control-plane-run-client.service';
 import { ExampleRunService } from './launch/example-run.service';
 import { LaunchService } from './launch/launch.service';
+import { ClientIpThrottlerGuard } from './llm-budget/client-ip-throttler.guard';
+import { LlmBudgetService } from './llm-budget/llm-budget.service';
+import { InMemoryLlmUsageStore, LLM_USAGE_STORE, LlmUsageStore } from './llm-budget/llm-usage.store';
+import { PostgresLlmUsageStore } from './llm-budget/postgres-llm-usage.store';
+import { AppConfigService } from './config/app-config.service';
 import { ApiKeyGuard } from './middleware/api-key.guard';
 import { CorrelationIdMiddleware } from './middleware/correlation-id.middleware';
 import { RequestLoggerMiddleware } from './middleware/request-logger.middleware';
@@ -31,7 +37,14 @@ import { RegistryIndexService } from './registry/registry-index.service';
 
 @Module({
   imports: [ConfigModule, AuthModule, ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }])],
-  controllers: [HealthController, CatalogController, LaunchController, ExamplesController, AgentsController],
+  controllers: [
+    HealthController,
+    CatalogController,
+    LaunchController,
+    ExamplesController,
+    AgentsController,
+    LlmUsageController
+  ],
   providers: [
     FileRegistryLoader,
     RegistryIndexService,
@@ -53,7 +66,16 @@ import { RegistryIndexService } from './registry/registry-index.service';
     PolicyRegistrarService,
     ControlPlaneRunClient,
     ExampleRunService,
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    {
+      provide: LLM_USAGE_STORE,
+      inject: [AppConfigService],
+      useFactory: (config: AppConfigService): LlmUsageStore => {
+        const url = config.llmBudget?.databaseUrl;
+        return url ? new PostgresLlmUsageStore(url) : new InMemoryLlmUsageStore();
+      }
+    },
+    LlmBudgetService,
+    { provide: APP_GUARD, useClass: ClientIpThrottlerGuard },
     { provide: APP_GUARD, useClass: ApiKeyGuard }
   ]
 })

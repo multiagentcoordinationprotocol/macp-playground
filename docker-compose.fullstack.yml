@@ -216,8 +216,11 @@ services:
       MACP_CONTROL_PLANE_API_KEY: demo-key
       # Real LLM key — agents (LangGraph/LangChain/CrewAI) call OpenAI.
       # PLAYGROUND_ALLOW_LLM is the server-side opt-in: without it every launch is
-      # deterministic and the key is never handed to a worker (the hosted default).
-      PLAYGROUND_ALLOW_LLM: '1'
+      # deterministic and the key is never handed to a worker (the image's default). On by
+      # default here; `PLAYGROUND_ALLOW_LLM=0 docker compose ... up` runs the stack deterministic.
+      # LLM launch limits apply with in-memory counters (NODE_ENV=development; see
+      # docs/deployment.md § LLM launch limits).
+      PLAYGROUND_ALLOW_LLM: ${PLAYGROUND_ALLOW_LLM:-1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY in the environment}
     depends_on:
       runtime:

@@ -149,6 +149,58 @@ describe('AppConfigService', () => {
     expect(new AppConfigService().allowLlmAgents).toBe(true);
   });
 
+  describe('production guards', () => {
+    beforeEach(() => {
+      jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+      jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      process.env.MACP_AUTH_SERVICE_URL = 'http://auth:3200';
+      process.env.NODE_ENV = 'production';
+      process.env.AUTH_API_KEYS = 'console-key';
+      delete process.env.PLAYGROUND_ALLOW_LLM;
+      delete process.env.LLM_USAGE_DATABASE_URL;
+    });
+    afterEach(() => jest.restoreAllMocks());
+
+    const initError = (): string | undefined => {
+      try {
+        new AppConfigService().onModuleInit();
+        return undefined;
+      } catch (err) {
+        expect((err as AppException).errorCode).toBe(ErrorCode.INVALID_CONFIG);
+        return (err as AppException).message;
+      }
+    };
+
+    it('refuses to boot in production without AUTH_API_KEYS: no route may be open', () => {
+      delete process.env.AUTH_API_KEYS;
+      expect(initError()).toMatch(/AUTH_API_KEYS is required/);
+    });
+
+    it('refuses LLM agents in production without durable counters (LLM_USAGE_DATABASE_URL)', () => {
+      process.env.PLAYGROUND_ALLOW_LLM = '1';
+      expect(initError()).toMatch(/LLM_USAGE_DATABASE_URL is required/);
+      process.env.LLM_USAGE_DATABASE_URL = 'postgres://u@h/db';
+      expect(initError()).toBeUndefined();
+    });
+
+    it('boots in production with keys and LLM off, and in development with neither', () => {
+      expect(initError()).toBeUndefined();
+      process.env.NODE_ENV = 'development';
+      delete process.env.AUTH_API_KEYS;
+      process.env.PLAYGROUND_ALLOW_LLM = '1';
+      expect(initError()).toBeUndefined();
+    });
+
+    it('reads TRUSTED_PROXY_HOPS (default 0, never negative)', () => {
+      delete process.env.TRUSTED_PROXY_HOPS;
+      expect(new AppConfigService().trustedProxyHops).toBe(0);
+      process.env.TRUSTED_PROXY_HOPS = '1';
+      expect(new AppConfigService().trustedProxyHops).toBe(1);
+      process.env.TRUSTED_PROXY_HOPS = '-3';
+      expect(new AppConfigService().trustedProxyHops).toBe(0);
+    });
+  });
+
   describe('auth config (MACP_AUTH_*)', () => {
     it('reads auth-service URL / timeout / TTL', () => {
       process.env.MACP_AUTH_SERVICE_URL = 'http://auth:3200';

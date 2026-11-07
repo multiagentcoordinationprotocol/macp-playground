@@ -1,6 +1,8 @@
 """Tests for the LangGraph worker's pure kickoff/state mappers."""
 
+import json
 import logging
+from pathlib import Path
 
 import pytest
 from langgraph_worker import graph as graph_module
@@ -185,6 +187,39 @@ class TestScoreFraud:
 
 
 class TestScoreLending:
+    # policy.lending.conservative's floor, read from the policy the scenario launches with so a
+    # change to either side shows up here rather than as a cancelled run.
+    LENDING_MIN_CONFIDENCE = json.loads(
+        (Path(__file__).resolve().parents[2] / 'policies' / 'policy.lending.conservative.json').read_text()
+    )['rules']['evaluation']['minimum_confidence']
+
+    def test_default_template_inputs_give_a_qualifying_evaluation(self):
+        # packs/lending/scenarios/loan-underwriting/1.0.0/templates/default.yaml defaults
+        # (composite 0.51). The runtime counts only non-REVIEW evaluations toward
+        # minimum_confidence (RFC-MACP-0007), so these inputs must produce an APPROVE or REJECT
+        # at or above the floor; REVIEW from all three specialists cancelled every
+        # deterministic default run.
+        recommendation, confidence, reason = score_lending(680, 0.35, 3, 0)
+        assert recommendation == 'APPROVE'
+        assert confidence == 0.65
+        assert confidence >= self.LENDING_MIN_CONFIDENCE
+        assert 'underwriting minimums' in reason
+
+    def test_upper_mid_band_with_a_hard_negative_still_reviews(self):
+        # Same composite band, but under 620 credit or over the 43% DTI ceiling.
+        assert score_lending(615, 0.25, 1, 0)[0] == 'REVIEW'
+        assert score_lending(750, 0.44, 5, 0)[0] == 'REVIEW'
+        assert score_lending(680, 0.38, 2, 0)[0] == 'REVIEW'  # composite 0.43, under 0.50
+
+    def test_every_approve_or_reject_clears_the_lending_confidence_floor(self):
+        for credit_score in (300, 500, 580, 620, 650, 680, 720, 800, 850):
+            for dti in (0.0, 0.10, 0.20, 0.30, 0.35, 0.43, 0.55, 1.0):
+                for years in (0, 1, 2, 3, 5, 10):
+                    for defaults in (0, 1, 3):
+                        recommendation, confidence, _ = score_lending(credit_score, dti, years, defaults)
+                        if recommendation != 'REVIEW':
+                            assert confidence >= self.LENDING_MIN_CONFIDENCE, (credit_score, dti, years, defaults)
+
     def test_strong_application_approves_with_qualifying_confidence(self):
         recommendation, confidence, _ = score_lending(720, 0.28, 6, 0)
         assert recommendation == 'APPROVE'

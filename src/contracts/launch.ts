@@ -98,6 +98,13 @@ export interface ScenarioMeta {
   initiatorParticipantId?: string;
   /** `deterministic` → hosting strips LLM provider keys from every spawned agent (see `launch.agentExecution`). */
   agentExecution?: AgentExecution;
+  /**
+   * Set when the template asked for LLM agents, the operator allows them, and an LLM launch limit
+   * was hit, so this launch fell back to deterministic agents (`LLM_LIMIT_ACTION=fallback`).
+   * `limit` names which: `per_ip_burst`, `per_ip_daily`, `global_daily`, `global_monthly`, or
+   * `store_unavailable` (the counters could not be read, so the launch failed closed).
+   */
+  agentExecutionFallback?: { reason: 'llm_limit'; limit: string };
 }
 
 export interface CompileLaunchResult {

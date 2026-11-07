@@ -78,6 +78,20 @@ jobs:
     permissions:
       contents: read
       packages: read
+    # A real Postgres for src/llm-budget/postgres-llm-usage.store.spec.ts, which is skipped without
+    # LLM_USAGE_TEST_DATABASE_URL: it proves the LLM launch counters are all-or-nothing, survive a
+    # new store instance, and never over-grant under concurrent reservations from several replicas.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: llm_usage
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      LLM_USAGE_TEST_DATABASE_URL: postgres://postgres:ci@localhost:5432/llm_usage
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -437,8 +451,16 @@ jobs:
             rm -f "$body"
           }
           trap cleanup EXIT
+          # Production refuses to boot without AUTH_API_KEYS (no route may be open), so first prove
+          # that refusal, then boot with a throwaway key.
+          if docker run --rm -e NODE_ENV=production -e MACP_AUTH_SERVICE_URL=http://127.0.0.1:9/unused \
+               '${{ steps.image.outputs.ref }}' >/tmp/nokey.log 2>&1; then
+            echo "::error::image booted in production without AUTH_API_KEYS"; cat /tmp/nokey.log; exit 1
+          fi
+          grep -q 'AUTH_API_KEYS is required' /tmp/nokey.log || { cat /tmp/nokey.log; exit 1; }
           docker run -d --name "$name" -p 3000:3000 \
             -e NODE_ENV=production \
+            -e AUTH_API_KEYS=ci-bootprobe-key \
             -e MACP_AUTH_SERVICE_URL=http://127.0.0.1:9/unused \
             '${{ steps.image.outputs.ref }}'
           for _ in $(seq 1 30); do
@@ -458,6 +480,9 @@ jobs:
           fi
           echo "/healthz body: $(cat "$body")"
           grep -q '"ok":true' "$body"
+          # Every other route needs the key.
+          [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/packs)" = 401 ]
+          [ "$(curl -s -o /dev/null -w '%{http_code}' -H 'x-api-key: ci-bootprobe-key' http://localhost:3000/packs)" = 200 ]
 
       - name: Scan image for vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

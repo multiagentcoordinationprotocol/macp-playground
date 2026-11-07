@@ -52,8 +52,8 @@ export class IntegrationTestClient {
 
   // -- Examples --
 
-  async runExample(body: object): Promise<Record<string, unknown>> {
-    return this.request('POST', '/examples/run', { body });
+  async runExample(body: object, headers?: Record<string, string>): Promise<Record<string, unknown>> {
+    return this.request('POST', '/examples/run', { body, headers });
   }
 
   // -- Raw --
