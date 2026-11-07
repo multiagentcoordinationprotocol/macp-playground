@@ -147,7 +147,7 @@ The auth-service and runtime must be deployed alongside — see [docs/deployment
 
 ### The hosted reference deployment (Doppler)
 
-The project's own instance runs on Railway (project `macp-scenario-runner`, service `macp-playground-service`). Its variables come from Doppler; see [Secrets and configuration](#secrets-and-configuration-doppler).
+The project's own instance runs on Railway (project `macp-scenario-runner`, service `macp-playground-service`). Its variables come from Doppler; see [Secrets and configuration](#secrets-and-configuration-doppler). It runs with `PLAYGROUND_ALLOW_LLM=1`, so its launches use real LLM agents (`gpt-4o-mini`) and spend the instance's `OPENAI_API_KEY`; that spend is capped per end user (5 an hour, 20 a day) and globally (200 a day, 2000 a month); over a cap, launches fall back to deterministic agents. Every route but `/healthz` needs the API key, which only the ui-console's server-side proxy and the project's tests hold. See [docs/deployment.md § LLM launch limits](docs/deployment.md#llm-launch-limits).
 
 ### Deploy to Render
 
@@ -243,7 +243,7 @@ docker compose -f docker-compose.dev.yml up
 OPENAI_API_KEY=sk-... NODE_AUTH_TOKEN=... docker compose -f docker-compose.fullstack.yml up --build
 ```
 
-LLM-backed agents need a server-side opt-in: the playground runs every launch with deterministic agents unless `PLAYGROUND_ALLOW_LLM=1` is set (the full-stack compose file sets it; the hosted deployment does not, so no hosted launch spends its `OPENAI_API_KEY`). See [docs/deployment.md](docs/deployment.md#agent-workers).
+LLM-backed agents need a server-side opt-in: the playground runs every launch with deterministic agents unless `PLAYGROUND_ALLOW_LLM=1` is set (the full-stack compose file sets it, and so does the project's own hosted instance, through Doppler `macp-playground/prd`; a self-hosted image leaves it unset, so no launch spends its `OPENAI_API_KEY` until you opt in). See [docs/deployment.md](docs/deployment.md#agent-workers).
 
 
 `docker-compose.yml` and `docker-compose.dev.yml` build the image from the `Dockerfile`, which installs `@multiagentcoordinationprotocol/proto` from GitHub Packages: export `NODE_AUTH_TOKEN` (a GitHub token with `read:packages`) before `docker compose ... up --build`. Details and the plain `docker-compose.yml` defaults: [docs/deployment.md § Local Testing](docs/deployment.md#local-testing).

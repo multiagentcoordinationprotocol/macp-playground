@@ -6,6 +6,7 @@ import { CompilerService } from '../compiler/compiler.service';
 import { HostedExampleAgent } from '../contracts/example-agents';
 import { HostingService } from '../hosting/hosting.service';
 import { ControlPlaneRunClient } from './control-plane-run-client.service';
+import { LlmBudgetService } from '../llm-budget/llm-budget.service';
 import { ExampleRunService } from './example-run.service';
 
 describe('ExampleRunService', () => {
@@ -14,6 +15,7 @@ describe('ExampleRunService', () => {
   let hosting: jest.Mocked<HostingService>;
   let config: AppConfigService;
   let controlPlaneClient: jest.Mocked<ControlPlaneRunClient>;
+  let llmBudget: { reserve: jest.Mock; budget: { onLimit: 'fallback' | 'reject' } };
 
   const sessionId = '00000000-0000-4000-8000-000000000001';
 
@@ -103,8 +105,15 @@ describe('ExampleRunService', () => {
     controlPlaneClient = {
       submitRun: jest.fn().mockResolvedValue(null)
     } as unknown as jest.Mocked<ControlPlaneRunClient>;
+    llmBudget = { reserve: jest.fn().mockResolvedValue({ granted: true }), budget: { onLimit: 'fallback' } };
 
-    service = new ExampleRunService(compiler, hosting, config, controlPlaneClient);
+    service = new ExampleRunService(
+      compiler,
+      hosting,
+      config,
+      controlPlaneClient,
+      llmBudget as unknown as LlmBudgetService
+    );
   });
 
   it('compiles and attaches agents with sessionId', async () => {
@@ -131,7 +140,7 @@ describe('ExampleRunService', () => {
   });
 
   it('is deterministic by default: without PLAYGROUND_ALLOW_LLM even an llm template gets deterministic agents', async () => {
-    // config.allowLlmAgents is unset here, exactly like the hosted deployment.
+    // config.allowLlmAgents is unset here, exactly like the image's default.
     compiler.compile.mockImplementation(async () => {
       const c = buildCompiled();
       c.scenarioMeta.agentExecution = 'llm';
@@ -163,7 +172,13 @@ describe('ExampleRunService', () => {
 
   it('asks hosting for deterministic agents only when the compiled scenario says so once PLAYGROUND_ALLOW_LLM opts in (W1.7)', async () => {
     config = { autoBootstrapExampleAgents: true, allowLlmAgents: true } as AppConfigService;
-    service = new ExampleRunService(compiler, hosting, config, controlPlaneClient);
+    service = new ExampleRunService(
+      compiler,
+      hosting,
+      config,
+      controlPlaneClient,
+      llmBudget as unknown as LlmBudgetService
+    );
     compiler.compile.mockImplementation(async () => {
       const c = buildCompiled();
       c.scenarioMeta.agentExecution = 'deterministic';
@@ -183,6 +198,85 @@ describe('ExampleRunService', () => {
     );
     expect(llm.compiled.scenarioMeta.agentExecution).toBe('llm');
     expect(llm.compiled.runDescriptor.session.metadata).toEqual(expect.objectContaining({ agentExecution: 'llm' }));
+  });
+
+  describe('LLM launch limits', () => {
+    beforeEach(() => {
+      config = { autoBootstrapExampleAgents: true, allowLlmAgents: true } as AppConfigService;
+      service = new ExampleRunService(
+        compiler,
+        hosting,
+        config,
+        controlPlaneClient,
+        llmBudget as unknown as LlmBudgetService
+      );
+    });
+
+    it('reserves one LLM launch against the caller IP and runs it with LLM agents when granted', async () => {
+      const result = await service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', inputs: {} }, '203.0.113.7');
+      expect(llmBudget.reserve).toHaveBeenCalledTimes(1);
+      expect(llmBudget.reserve).toHaveBeenCalledWith('203.0.113.7');
+      expect(result.compiled.scenarioMeta.agentExecution).toBe('llm');
+      expect(result.compiled.scenarioMeta.agentExecutionFallback).toBeUndefined();
+    });
+
+    it('falls back to deterministic agents, marked in the run, when a limit is hit (LLM_LIMIT_ACTION=fallback)', async () => {
+      llmBudget.reserve.mockResolvedValue({ granted: false, limit: 'global_daily' });
+      const result = await service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', inputs: {} }, '203.0.113.7');
+      expect(hosting.attach).toHaveBeenLastCalledWith(
+        expect.anything(),
+        expect.objectContaining({ deterministicAgents: true })
+      );
+      expect(result.compiled.scenarioMeta.agentExecution).toBe('deterministic');
+      expect(result.compiled.scenarioMeta.agentExecutionFallback).toEqual({
+        reason: 'llm_limit',
+        limit: 'global_daily'
+      });
+      expect(controlPlaneClient.submitRun).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          session: expect.objectContaining({
+            metadata: expect.objectContaining({
+              agentExecution: 'deterministic',
+              agentExecutionFallback: 'llm_limit:global_daily'
+            })
+          })
+        })
+      );
+    });
+
+    it('refuses with 429 LLM_LIMIT_EXCEEDED and spawns nothing when a limit is hit (LLM_LIMIT_ACTION=reject)', async () => {
+      llmBudget.budget.onLimit = 'reject';
+      llmBudget.reserve.mockResolvedValue({ granted: false, limit: 'per_ip_burst' });
+      await expect(
+        service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', inputs: {} }, '203.0.113.7')
+      ).rejects.toMatchObject({ status: 429, errorCode: 'LLM_LIMIT_EXCEEDED', metadata: { limit: 'per_ip_burst' } });
+      expect(hosting.attach).not.toHaveBeenCalled();
+      expect(controlPlaneClient.submitRun).not.toHaveBeenCalled();
+    });
+
+    it('counts nothing for a deterministic template, a launch that spawns no agents, or LLM not allowed', async () => {
+      compiler.compile.mockImplementation(async () => {
+        const c = buildCompiled();
+        c.scenarioMeta.agentExecution = 'deterministic';
+        return c;
+      });
+      await service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', templateId: 'showcase', inputs: {} });
+
+      compiler.compile.mockImplementation(async () => buildCompiled());
+      await service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', bootstrapAgents: false, inputs: {} });
+
+      config = { autoBootstrapExampleAgents: true } as AppConfigService;
+      service = new ExampleRunService(
+        compiler,
+        hosting,
+        config,
+        controlPlaneClient,
+        llmBudget as unknown as LlmBudgetService
+      );
+      await service.run({ scenarioRef: 'fraud/high-value-new-device@1.0.0', inputs: {} });
+
+      expect(llmBudget.reserve).not.toHaveBeenCalled();
+    });
   });
 
   it('falls back to a freshly-generated UUID and mirrors it into runDescriptor.session.sessionId when compiled.sessionId is falsy', async () => {
@@ -225,7 +319,13 @@ describe('ExampleRunService', () => {
 
   it('skips attach when bootstrapAgents is false', async () => {
     config = { autoBootstrapExampleAgents: false } as AppConfigService;
-    service = new ExampleRunService(compiler, hosting, config, controlPlaneClient);
+    service = new ExampleRunService(
+      compiler,
+      hosting,
+      config,
+      controlPlaneClient,
+      llmBudget as unknown as LlmBudgetService
+    );
 
     const result = await service.run({
       scenarioRef: 'fraud/high-value-new-device@1.0.0',

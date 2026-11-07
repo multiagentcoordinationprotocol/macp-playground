@@ -78,6 +78,20 @@ jobs:
     permissions:
       contents: read
       packages: read
+    # A real Postgres for src/llm-budget/postgres-llm-usage.store.spec.ts, which is skipped without
+    # LLM_USAGE_TEST_DATABASE_URL: it proves the LLM launch counters are all-or-nothing, survive a
+    # new store instance, and never over-grant under concurrent reservations from several replicas.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: llm_usage
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      LLM_USAGE_TEST_DATABASE_URL: postgres://postgres:ci@localhost:5432/llm_usage
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

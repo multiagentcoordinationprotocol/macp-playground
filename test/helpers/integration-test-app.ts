@@ -7,6 +7,7 @@ import { AppConfigService } from '../../src/config/app-config.service';
 import { AuthTokenMinterService } from '../../src/auth/auth-token-minter.service';
 import { ExampleAgentCatalogService } from '../../src/example-agents/example-agent-catalog.service';
 import { GlobalExceptionFilter } from '../../src/errors/exception.filter';
+import { DEFAULT_LLM_BUDGET, LlmBudgetConfig } from '../../src/llm-budget/llm-budget.config';
 import { MockControlPlane } from './mock-control-plane';
 import { IntegrationTestClient } from './integration-test-client';
 import { buildStubExampleAgentCatalog } from '../fixtures/stub-example-agent-catalog';
@@ -46,6 +47,10 @@ export async function createIntegrationTestApp(
     controlPlaneUrl: string;
     controlPlaneTimeoutMs: number;
     controlPlaneApiKey: string;
+    /** Defaults to the PLAYGROUND_ALLOW_LLM env var. */
+    allowLlmAgents: boolean;
+    llmBudget: Partial<LlmBudgetConfig>;
+    trustedProxyHops: number;
   }>
 ): Promise<IntegrationTestContext> {
   const controlPlaneMode = (process.env.INTEGRATION_CONTROL_PLANE ?? 'mock') as ControlPlaneMode;
@@ -114,7 +119,11 @@ export async function createIntegrationTestApp(
       logLevel: 'warn',
       autoBootstrapExampleAgents: overrides?.autoBootstrapExampleAgents ?? true,
       // Mirrors AppConfigService: LLM agents only on an explicit PLAYGROUND_ALLOW_LLM opt-in.
-      allowLlmAgents: ['1', 'true', 'yes', 'on'].includes((process.env.PLAYGROUND_ALLOW_LLM ?? '').toLowerCase()),
+      allowLlmAgents:
+        overrides?.allowLlmAgents ??
+        ['1', 'true', 'yes', 'on'].includes((process.env.PLAYGROUND_ALLOW_LLM ?? '').toLowerCase()),
+      llmBudget: { ...DEFAULT_LLM_BUDGET, databaseUrl: '', ...(overrides?.llmBudget ?? {}) },
+      trustedProxyHops: overrides?.trustedProxyHops ?? 0,
       registerPoliciesOnLaunch: true,
       // Real-catalog runs (docker/remote) spawn the Python workers on THIS host, so they need an
       // interpreter with macp_sdk installed — point EXAMPLE_AGENT_PYTHON_PATH at a venv's python.

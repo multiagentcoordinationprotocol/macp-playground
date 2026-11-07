@@ -17,5 +17,7 @@ export enum ErrorCode {
   AUTH_MINT_FAILED = 'AUTH_MINT_FAILED',
   /** An agent whose bootstrap mode requires a real attach (`mode: 'attached'`) failed to spawn or stay up. */
   AGENT_ATTACH_FAILED = 'AGENT_ATTACH_FAILED',
+  /** An LLM launch limit was hit and LLM_LIMIT_ACTION=reject (429). */
+  LLM_LIMIT_EXCEEDED = 'LLM_LIMIT_EXCEEDED',
   INTERNAL_ERROR = 'INTERNAL_ERROR'
 }

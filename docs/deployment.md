@@ -139,7 +139,8 @@ This is the canonical env-var reference. The tables mirror `AppConfigService` (`
 | `CORS_ORIGIN` | No | `http://localhost:3000` | Comma-separated origins (supports `*` and wildcards) |
 | `NODE_ENV` | No | `development` | `development` enables Swagger at `/docs` |
 | `LOG_LEVEL` | No | `info` | |
-| `AUTH_API_KEYS` | No | — | Comma-separated keys guarding the macp-playground HTTP surface |
+| `AUTH_API_KEYS` | **Yes in production** | — | Comma-separated keys guarding the macp-playground HTTP surface, sent as `x-api-key` and compared in constant time. Every route except `/healthz` answers 401 without one. With `NODE_ENV=production` the service refuses to boot when this is empty; unset elsewhere, the surface is open (local development only). The ui-console's server-side proxy holds the key (`MACP_PLAYGROUND_API_KEY`); no browser ever does. |
+| `TRUSTED_PROXY_HOPS` | No | `0` | Reverse proxies in front of the service that append to `X-Forwarded-For`; the client address is that many entries from the right (`1` on Railway). `0` uses the socket peer. See [LLM launch limits](#llm-launch-limits). |
 
 ### Scenario registry
 
@@ -196,10 +197,38 @@ Worker processes inherit the service's environment, so these are set on the play
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `PLAYGROUND_ALLOW_LLM` | No | _(unset)_ | Server-side opt-in for LLM-backed agents. **Unset → every `/examples/run` launch is deterministic**: hosting strips `OPENAI_API_KEY` (and every other key in `LLM_PROVIDER_ENV_KEYS`) from each spawned worker, whatever template the request names, so a deployment can hold a key without any anonymous launch spending it. Leave it unset on the hosted deployment; set `1` on a stack you own (`docker-compose.fullstack.yml` does). A template with `agentExecution: deterministic` stays deterministic either way. The resolved mode is returned as `compiled.scenarioMeta.agentExecution`, written to `runDescriptor.session.metadata.agentExecution`, and recorded per agent as `participantMetadata.agentExecution`. |
+| `PLAYGROUND_ALLOW_LLM` | No | _(unset)_ | Server-side opt-in for LLM-backed agents. **Unset → every `/examples/run` launch is deterministic**: hosting strips `OPENAI_API_KEY` (and every other key in `LLM_PROVIDER_ENV_KEYS`) from each spawned worker, whatever template the request names, so a deployment can hold a key without any anonymous launch spending it. Leave it unset unless you mean launches to spend the key; set `1` on a stack you own (`docker-compose.fullstack.yml` does, and the project's own Railway instance sets it through Doppler `macp-playground/prd`). LLM launches are capped by the [LLM launch limits](#llm-launch-limits); keep a provider-side spend limit on the key as well. A template with `agentExecution: deterministic` stays deterministic either way. The resolved mode is returned as `compiled.scenarioMeta.agentExecution`, written to `runDescriptor.session.metadata.agentExecution`, and recorded per agent as `participantMetadata.agentExecution`. |
 | `OPENAI_API_KEY` | No | _(empty)_ | Used by the LangGraph / LangChain / CrewAI workers (`gpt-4o-mini`) **only when `PLAYGROUND_ALLOW_LLM` is set**. Empty, or opt-in unset → each worker uses its deterministic fallback scorer and makes no LLM call. |
 | `RISK_DECIDER_WAIT_ALL_TIMEOUT_MS` | No | `60000` | How long the risk-decider coordinator waits for every specialist before committing with the votes it has. |
 | `RISK_DECIDER_SUSPEND_HOLD_MS` | No | `8000` | How long the suspend/resume demo (`suspend` customerId sentinel) holds the session suspended before resuming. |
+| `LLM_LIMIT_PER_IP_BURST` | No | `5` | LLM launches per client IP per burst window. |
+| `LLM_LIMIT_PER_IP_BURST_WINDOW_MS` | No | `3600000` | Burst window length (fixed windows; minimum 1000). |
+| `LLM_LIMIT_PER_IP_DAILY` | No | `20` | LLM launches per client IP per UTC day. |
+| `LLM_LIMIT_GLOBAL_DAILY` | No | `200` | LLM launches across all callers per UTC day. |
+| `LLM_LIMIT_GLOBAL_MONTHLY` | No | `2000` | LLM launches across all callers per UTC calendar month: the hard budget ceiling. |
+| `LLM_LIMIT_ACTION` | No | `fallback` | What a launch over a limit gets: `fallback` runs it with deterministic agents, marked; `reject` refuses it with 429 `LLM_LIMIT_EXCEEDED`. |
+| `LLM_USAGE_DATABASE_URL` | **Yes in production with LLM on** | _(empty)_ | Postgres for the launch counters. Empty → in-memory counters, which reset on restart and count per replica; the service refuses that with `NODE_ENV=production` and `PLAYGROUND_ALLOW_LLM` set. |
+
+### LLM launch limits
+
+When `PLAYGROUND_ALLOW_LLM` is set, every launch that would run LLM agents first reserves one unit against four counters, all-or-nothing:
+
+| Counter | Default | Keyed on |
+|---|---|---|
+| Per-IP burst | 5 per hour | client IP, fixed window |
+| Per-IP daily | 20 per UTC day | client IP |
+| Global daily | 200 per UTC day | all callers |
+| Global monthly | 2000 per UTC month | all callers |
+
+A launch is counted when granted, whether or not the session completes; a refused launch counts nothing. Deterministic templates, launches with LLM off, and `bootstrapAgents: false` are never counted. At `gpt-4o-mini` prices one LLM launch (three worker calls) costs well under a cent, so 2000 a month bounds the spend at a few dollars.
+
+**Over a limit.** With `LLM_LIMIT_ACTION=fallback` (the default) the launch still runs, with deterministic agents, and says so: `compiled.scenarioMeta.agentExecutionFallback = { reason: "llm_limit", limit }` and `runDescriptor.session.metadata.agentExecutionFallback = "llm_limit:<limit>"`, where `limit` is `per_ip_burst`, `per_ip_daily`, `global_daily`, `global_monthly` or `store_unavailable`. The demo keeps working for everyone while the budget is spent. `reject` returns 429 instead, for an operator who would rather fail loudly. If the counters cannot be read, the launch fails closed (`store_unavailable`).
+
+**Client IP.** All legitimate traffic arrives from the ui-console's server-side proxy, so the connecting address is Vercel's for every user. The proxy names the end user in `X-MACP-Client-IP`; the playground believes that header only on a request carrying a valid `x-api-key` and holding exactly one well-formed IP. Otherwise it uses the trusted proxy hop: the `X-Forwarded-For` entry `TRUSTED_PROXY_HOPS` from the right (entries further left are caller-written and ignored), or the socket peer when that is 0. The global request throttle (100 per 60 s) is keyed on the same address. A key holder can name any client IP, so the per-IP limits only spread one key's traffic fairly; the global caps are the hard ceiling.
+
+**Storage.** Counters live in Postgres (`LLM_USAGE_DATABASE_URL`, table `llm_usage_counters`, created on start): they survive restarts and stay exact across replicas, because each reservation upserts its counters inside one transaction whose row locks serialize concurrent launches. Per-IP rows key on a truncated SHA-256 of the address, never the address, and expired rows are deleted hourly. The hosted instance uses its own database and role (`macp_playground`) on the project's Postgres.
+
+**Visibility.** Each grant logs `llm_budget_reserved globalDaily=n/limit globalMonthly=n/limit`; each refusal logs `llm_budget_limit_tripped limit=… count=… max=… window=… action=…` (no IPs). `GET /llm-usage` (API key required) returns the limits and the global day and month counts. `/healthz` stays `{ ok, service }`.
 
 ## GHCR Visibility
 

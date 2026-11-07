@@ -15,7 +15,7 @@ All endpoints return JSON. Error responses follow the format:
 
 Authentication is optional. When `AUTH_API_KEYS` is configured, pass a valid key via the `x-api-key` header. The guard is global, with one exception: `GET /healthz` never requires a key, so the image's Docker `HEALTHCHECK` (which sends none) keeps passing when keys are on. It returns only `{ "ok": true, "service": "macp-playground" }`. A missing or wrong key returns `401` in Nest's shape (`{ "statusCode": 401, "message": "Invalid or missing API key", "error": "Unauthorized" }`, no `errorCode`).
 
-Rate limiting is global: 100 requests per 60 s per client (`@nestjs/throttler`). Excess requests return `429`.
+Every route except `/healthz` requires the `x-api-key` header (401 without it). Rate limiting: 100 requests per 60 s per client (`@nestjs/throttler`), keyed on the client IP described in [deployment.md § LLM launch limits](deployment.md#llm-launch-limits). Excess requests return `429`. LLM-backed launches have their own limits; over one, `/examples/run` falls back to deterministic agents (`compiled.scenarioMeta.agentExecutionFallback`) or, with `LLM_LIMIT_ACTION=reject`, returns 429 `LLM_LIMIT_EXCEEDED`. `GET /llm-usage` returns the limits and the global day and month counts.
 
 ## Health
 

@@ -1,6 +1,33 @@
 import { createIntegrationTestApp, IntegrationTestContext } from '../helpers/integration-test-app';
 import { IntegrationTestClient } from '../helpers/integration-test-client';
+import { RequestMethod } from '@nestjs/common';
+import { METHOD_METADATA, MODULE_METADATA, PATH_METADATA } from '@nestjs/common/constants';
+import { AppModule } from '../../src/app.module';
 import { fraudScenarioRunRequest } from '../fixtures/integration-requests';
+
+/** Every route AppModule's controllers declare, read from Nest's own metadata so a new route is covered. */
+function declaredRoutes(): Array<{ method: string; path: string }> {
+  const controllers = (Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, AppModule) ?? []) as Array<
+    new (...args: never[]) => unknown
+  >;
+  const routes: Array<{ method: string; path: string }> = [];
+  for (const controller of controllers) {
+    const base = String(Reflect.getMetadata(PATH_METADATA, controller) ?? '').replace(/^\/|\/$/g, '');
+    for (const name of Object.getOwnPropertyNames(controller.prototype)) {
+      const handler = (controller.prototype as Record<string, unknown>)[name];
+      if (typeof handler !== 'function' || Reflect.getMetadata(METHOD_METADATA, handler) === undefined) continue;
+      const sub = String(Reflect.getMetadata(PATH_METADATA, handler) ?? '').replace(/^\/|\/$/g, '');
+      const path =
+        '/' +
+        [base, sub]
+          .filter(Boolean)
+          .join('/')
+          .replace(/:([A-Za-z]+)/g, 'x');
+      routes.push({ method: RequestMethod[Reflect.getMetadata(METHOD_METADATA, handler) as number], path });
+    }
+  }
+  return routes;
+}
 
 const describeIfMock = (process.env.INTEGRATION_CONTROL_PLANE ?? 'mock') === 'mock' ? describe : describe.skip;
 
@@ -24,6 +51,25 @@ describeIfMock('API Key Authentication (integration, mock-only)', () => {
       const { status, body } = await ctx.client.requestRaw('GET', '/healthz');
       expect(status).toBe(200);
       expect(body).toEqual({ ok: true, service: 'macp-playground' });
+    });
+
+    it('rejects every route except /healthz without a key, or with a wrong one (route audit)', async () => {
+      const routes = declaredRoutes();
+      expect(routes.length).toBeGreaterThanOrEqual(10);
+      for (const { method, path } of routes) {
+        const body = method === 'POST' ? {} : undefined;
+        const open = await ctx.client.requestRaw(method, path, { body });
+        const wrong = await ctx.client.requestRaw(method, path, { body, headers: { 'x-api-key': 'wrong-key' } });
+        const expected = path === '/healthz' ? 200 : 401;
+        expect({ route: `${method} ${path}`, status: open.status }).toEqual({
+          route: `${method} ${path}`,
+          status: expected
+        });
+        expect({ route: `${method} ${path}`, status: wrong.status }).toEqual({
+          route: `${method} ${path}`,
+          status: expected
+        });
+      }
     });
 
     it('rejects requests without x-api-key header with 401', async () => {
