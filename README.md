@@ -180,6 +180,9 @@ npm run start:dev          # Dev mode with auto-reload
 npm test                   # Unit tests
 npm run test:e2e           # E2E tests
 npm run test:integration   # Integration tests (mock control plane)
+npm run test:scenarios     # Every shipped scenario to a terminal run on a LIVE stack (opt-in:
+                           # SCENARIO_E2E_PLAYGROUND_URL / _CONTROL_PLANE_URL / _CONTROL_PLANE_API_KEY,
+                           # optional _PLAYGROUND_API_KEY; local fullstack compose or Railway)
 npm run test:cov           # Coverage report (global thresholds enforced)
 npm run lint               # ESLint
 npm run format             # Prettier (write)

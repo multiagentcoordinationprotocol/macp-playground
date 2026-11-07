@@ -21,6 +21,7 @@
     "test:integration": "NODE_OPTIONS=--experimental-vm-modules jest --config test/jest.integration.config.ts --runInBand",
     "test:integration:docker": "INTEGRATION_CONTROL_PLANE=docker NODE_OPTIONS=--experimental-vm-modules jest --config test/jest.integration.config.ts --runInBand",
     "test:integration:remote": "INTEGRATION_CONTROL_PLANE=remote NODE_OPTIONS=--experimental-vm-modules jest --config test/jest.integration.config.ts --runInBand",
+    "test:scenarios": "NODE_OPTIONS=--experimental-vm-modules jest --config test/jest.integration.config.ts --runInBand scenario-outcomes",
     "scenario": "ts-node scripts/scenario.ts",
     "scenario:validate": "ts-node scripts/scenario.ts validate",
     "scenario:dry-run": "ts-node scripts/scenario.ts dry-run",
