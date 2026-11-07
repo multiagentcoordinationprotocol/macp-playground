@@ -143,6 +143,22 @@ async function main(): Promise<void> {
   // Max time to wait for all specialists to vote before committing with whatever
   // has arrived. Overridable via env for tests/demos.
   const WAIT_ALL_TIMEOUT_MS = Number(process.env.RISK_DECIDER_WAIT_ALL_TIMEOUT_MS ?? 60_000);
+  // Suspend-demo only: max time to wait for every specialist's Vote to land before suspending.
+  const SUSPEND_VOTE_WAIT_MS = Number(process.env.RISK_DECIDER_SUSPEND_VOTE_WAIT_MS ?? 10_000);
+  // Specialists whose Vote the runtime has accepted (we observed it on the stream).
+  const votedBy = new Set<string>();
+
+  // The specialists send their Vote right after they see every peer's Evaluation, i.e. at the
+  // same moment tryCommit fires. Suspending then races those Votes: one that reaches the runtime
+  // while the session is SUSPENDED is refused and never retried, so the commit after resume is
+  // short of quorum (POLICY_DENIED quorum_not_met) and the demo ends CANCELLED. Wait for the
+  // Votes first (bounded), so the suspension really happens "once every specialist has voted".
+  async function waitForSpecialistVotes(timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (!recipients.every((r) => votedBy.has(r)) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
 
   participant.on('Proposal', (message: IncomingMessage) => {
     if (!proposalId) {
@@ -205,6 +221,7 @@ async function main(): Promise<void> {
   participant.on('Vote', (message: IncomingMessage, ctx: HandlerContext) => {
     if (!message.proposalId || message.sender === participantId) return;
 
+    votedBy.add(message.sender);
     const voteValue = String(message.payload.vote ?? '').toUpperCase();
     const recommendation = voteValue === 'APPROVE' ? 'APPROVE' : voteValue === 'ABSTAIN' ? 'REVIEW' : 'BLOCK';
 
@@ -304,8 +321,14 @@ async function main(): Promise<void> {
       const sessionId = bootstrap.session_id ?? '';
       const holdMs = Number(process.env.RISK_DECIDER_SUSPEND_HOLD_MS ?? 8000);
       if (sessionId) {
+        await waitForSpecialistVotes(SUSPEND_VOTE_WAIT_MS);
         try {
-          log('suspend-demo: suspending live session (initiator authority)', { sessionId, holdMs });
+          log('suspend-demo: suspending live session (initiator authority)', {
+            sessionId,
+            holdMs,
+            votesObserved: votedBy.size,
+            expectedVotes: recipients.length
+          });
           await participant.client.suspendSession(sessionId, 'suspend/resume demo (initiator-driven)', {
             auth: participant.auth,
             raiseOnNack: true

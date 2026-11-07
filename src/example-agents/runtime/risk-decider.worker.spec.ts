@@ -13,6 +13,8 @@ const mockActions = {
 // participant.client surface the worker reaches into directly (session.context
 // signal emission + cancel-on-policy-denial).
 const mockCancelSession = jest.fn().mockResolvedValue({ ok: true });
+const mockSuspendSession = jest.fn().mockResolvedValue({ ok: true });
+const mockResumeSession = jest.fn().mockResolvedValue({ ok: true });
 const mockClientSend = jest.fn().mockResolvedValue(undefined);
 const mockAuth = { kind: 'bearer', token: 'tok-risk' };
 
@@ -27,6 +29,8 @@ jest.mock('macp-sdk-typescript', () => ({
       auth: mockAuth,
       client: {
         cancelSession: mockCancelSession,
+        suspendSession: mockSuspendSession,
+        resumeSession: mockResumeSession,
         send: mockClientSend,
         protoRegistry: { encodeKnownPayload: jest.fn(() => ({})) }
       }
@@ -393,6 +397,92 @@ describe('risk-decider.worker (SDK Participant)', () => {
         expect.stringContaining('insufficient signals to evaluate policy'),
         expect.objectContaining({ auth: mockAuth, cancelledBy: 'risk-coordinator' })
       );
+    });
+  });
+  describe('suspend-demo (customerId carries the `suspend` sentinel)', () => {
+    const suspendBootstrap = () =>
+      defaultBootstrap({
+        metadata: {
+          ...defaultBootstrap().metadata!,
+          session_context: { customerId: 'CUST-SUSPEND-2001', transactionAmount: 2400 }
+        }
+      });
+
+    function driveEvaluations(ctx: unknown): void {
+      getHandler('Proposal')({ proposalId: 'p1', sender: 'fraud-agent', payload: {} });
+      const onEvaluation = getHandler('Evaluation');
+      onEvaluation(
+        { proposalId: 'p1', sender: 'fraud-agent', payload: { recommendation: 'APPROVE', confidence: 1 } },
+        ctx
+      );
+      onEvaluation(
+        { proposalId: 'p1', sender: 'compliance-agent', payload: { recommendation: 'APPROVE', confidence: 1 } },
+        ctx
+      );
+    }
+
+    beforeEach(() => {
+      process.env.RISK_DECIDER_SUSPEND_HOLD_MS = '100';
+      process.env.RISK_DECIDER_SUSPEND_VOTE_WAIT_MS = '2000';
+    });
+
+    afterEach(() => {
+      delete process.env.RISK_DECIDER_SUSPEND_HOLD_MS;
+      delete process.env.RISK_DECIDER_SUSPEND_VOTE_WAIT_MS;
+    });
+
+    // Regression: the coordinator used to suspend the instant the last Evaluation arrived — the
+    // same instant the specialists send their Votes — so on a slower link (Railway) the Votes hit
+    // a SUSPENDED session, were refused, and the commit after resume failed quorum_not_met.
+    it('waits for every specialist Vote before suspending, then resumes and commits', async () => {
+      mockLoadBootstrap.mockReturnValue(suspendBootstrap());
+      await runWorker();
+      await jest.advanceTimersByTimeAsync(10);
+
+      const ctx = {
+        actions: { vote: jest.fn().mockResolvedValue(undefined), commit: jest.fn().mockResolvedValue(undefined) }
+      };
+      driveEvaluations(ctx);
+      await jest.advanceTimersByTimeAsync(200);
+      expect(mockSuspendSession).not.toHaveBeenCalled();
+
+      const onVote = getHandler('Vote');
+      onVote({ proposalId: 'p1', sender: 'fraud-agent', payload: { vote: 'APPROVE' } }, ctx);
+      await jest.advanceTimersByTimeAsync(200);
+      expect(mockSuspendSession).not.toHaveBeenCalled();
+
+      onVote({ proposalId: 'p1', sender: 'compliance-agent', payload: { vote: 'APPROVE' } }, ctx);
+      await jest.advanceTimersByTimeAsync(500);
+
+      expect(mockSuspendSession).toHaveBeenCalledTimes(1);
+      expect(mockResumeSession).toHaveBeenCalledTimes(1);
+      expect(ctx.actions.commit).toHaveBeenCalledTimes(1);
+      expect(mockSuspendSession.mock.invocationCallOrder[0]).toBeLessThan(
+        mockResumeSession.mock.invocationCallOrder[0]
+      );
+      expect(mockResumeSession.mock.invocationCallOrder[0]).toBeLessThan(
+        ctx.actions.commit.mock.invocationCallOrder[0]
+      );
+      expect(mockCancelSession).not.toHaveBeenCalled();
+    });
+
+    it('still suspends after the bounded vote wait when a specialist never votes', async () => {
+      mockLoadBootstrap.mockReturnValue(suspendBootstrap());
+      await runWorker();
+      await jest.advanceTimersByTimeAsync(10);
+
+      const ctx = {
+        actions: { vote: jest.fn().mockResolvedValue(undefined), commit: jest.fn().mockResolvedValue(undefined) }
+      };
+      driveEvaluations(ctx);
+      await jest.advanceTimersByTimeAsync(1500);
+      expect(mockSuspendSession).not.toHaveBeenCalled();
+
+      await jest.advanceTimersByTimeAsync(1000);
+      expect(mockSuspendSession).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(300);
+      expect(mockResumeSession).toHaveBeenCalledTimes(1);
+      expect(ctx.actions.commit).toHaveBeenCalledTimes(1);
     });
   });
 });
