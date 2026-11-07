@@ -16,6 +16,13 @@ import { IntegrationTestClient } from '../helpers/integration-test-client';
  *   SCENARIO_E2E_CONTROL_PLANE_URL      control-plane base URL the playground registers runs with
  *   SCENARIO_E2E_CONTROL_PLANE_API_KEY  control-plane API key
  *   SCENARIO_E2E_RUN_TIMEOUT_MS         optional per-run wait, default 240000
+ *   SCENARIO_E2E_AGENT_EXECUTION        optional `llm` | `deterministic`: every non-showcase launch
+ *                                       must resolve to this mode, so an LLM run that silently fell
+ *                                       back to deterministic agents (an LLM launch limit) fails
+ *
+ * Each launch names its own client in X-MACP-Client-IP (198.18.0.0/15, the benchmarking range), so
+ * one pass of the suite does not trip the playground's per-IP LLM burst limit. It still counts
+ * against the global daily and monthly LLM caps.
  *
  * Scenarios come from this checkout's `packs/`, so the target should run the same commit.
  */
@@ -28,8 +35,23 @@ const PLAYGROUND_API_KEY =
 const CONTROL_PLANE_URL = process.env.SCENARIO_E2E_CONTROL_PLANE_URL ?? '';
 const CONTROL_PLANE_API_KEY = process.env.SCENARIO_E2E_CONTROL_PLANE_API_KEY ?? '';
 const RUN_TIMEOUT_MS = Number(process.env.SCENARIO_E2E_RUN_TIMEOUT_MS ?? 240_000);
+const EXPECT_AGENT_EXECUTION = (process.env.SCENARIO_E2E_AGENT_EXECUTION ?? '').trim();
 const enabled = PLAYGROUND_URL !== '' && CONTROL_PLANE_URL !== '';
 const describeLive = enabled ? describe : describe.skip;
+
+/**
+ * Every shipped template must end `completed`, with deterministic and LLM agents alike. A
+ * `cancelled` run means the risk-decider's commit was policy-denied (it cancels via the
+ * CancelSession RPC rather than leave the session to expire), which for a shipped demo is a bug:
+ * the deterministic lending run used to be cancelled because its specialists evaluated under
+ * lending.conservative's confidence floor. A template whose point is a governed cancellation
+ * opts in here by label (`pack/scenario@version:template`); none does today.
+ */
+const EXPECTED_STATUS: Record<string, 'completed' | 'cancelled'> = {};
+
+function expectedStatus(combo: Combo): 'completed' | 'cancelled' {
+  return EXPECTED_STATUS[label(combo)] ?? 'completed';
+}
 
 interface Combo {
   pack: string;
@@ -93,39 +115,44 @@ describeLive('Scenario outcomes against a running stack (integration, opt-in)', 
   });
 
   it.each(combos.map((c) => [label(c), c] as const))(
-    '%s reaches a terminal state through the control-plane',
+    '%s reaches its expected terminal state through the control-plane',
     async (_label, combo) => {
+      const clientIp = `198.18.0.${combos.indexOf(combo) + 1}`;
       const schema = (await client.getLaunchSchema(combo.pack, combo.scenario, combo.version, combo.template)) as {
         defaults?: Record<string, unknown>;
       };
-      const result = (await client.runExample({
-        scenarioRef: `${combo.pack}/${combo.scenario}@${combo.version}`,
-        templateId: combo.template,
-        mode: 'sandbox',
-        inputs: schema.defaults ?? {},
-        bootstrapAgents: true,
-        tags: ['scenario-e2e'],
-        runLabel: `scenario-e2e ${label(combo)}`
-      })) as {
+      const result = (await client.runExample(
+        {
+          scenarioRef: `${combo.pack}/${combo.scenario}@${combo.version}`,
+          templateId: combo.template,
+          mode: 'sandbox',
+          inputs: schema.defaults ?? {},
+          bootstrapAgents: true,
+          tags: ['scenario-e2e'],
+          runLabel: `scenario-e2e ${label(combo)}`
+        },
+        { 'x-macp-client-ip': clientIp }
+      )) as {
         hostedAgents: unknown[];
         sessionId?: string;
         controlPlaneRun?: { runId: string };
-        compiled: { scenarioMeta: { agentExecution?: string } };
+        compiled: { scenarioMeta: { agentExecution?: string; agentExecutionFallback?: unknown } };
       };
 
       expect(result.hostedAgents).toHaveLength(4);
       expect(result.controlPlaneRun?.runId).toBeDefined();
       if (combo.template === 'showcase') expect(result.compiled.scenarioMeta.agentExecution).toBe('deterministic');
+      else if (EXPECT_AGENT_EXECUTION) {
+        expect(result.compiled.scenarioMeta.agentExecutionFallback).toBeUndefined();
+        expect(result.compiled.scenarioMeta.agentExecution).toBe(EXPECT_AGENT_EXECUTION);
+      }
 
       const runId = result.controlPlaneRun!.runId;
       const status = await waitForTerminal(runId);
       const events = await cp<RunEvent[] | { events: RunEvent[] }>(`/runs/${runId}/events?limit=500`);
       const types = new Set((Array.isArray(events) ? events : events.events).map((e) => e.type));
 
-      // `cancelled` is a governed outcome, not a hang: the risk-decider cancels via the
-      // CancelSession RPC when the runtime's policy engine denies its commit (for example the
-      // deterministic lending run is under lending.conservative's confidence floor).
-      expect(['completed', 'cancelled']).toContain(status);
+      expect(status).toBe(expectedStatus(combo));
       if (status === 'completed') expect(types.has('decision.finalized')).toBe(true);
       expect(types.has('run.failed')).toBe(false);
 
@@ -135,7 +162,6 @@ describeLive('Scenario outcomes against a running stack (integration, opt-in)', 
         // must land before the suspension, so the commit after resume meets quorum.
         expect(types.has('run.suspended')).toBe(true);
         expect(types.has('run.resumed')).toBe(true);
-        expect(status).toBe('completed');
       }
     },
     RUN_TIMEOUT_MS + 60_000

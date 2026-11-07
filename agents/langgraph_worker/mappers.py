@@ -89,7 +89,12 @@ def score_lending(credit_score, debt_to_income_ratio, employment_years, prior_de
     if composite <= 0.35:
         confidence = 0.6 + 0.3 * min((0.35 - composite) / 0.35, 1.0)
         return 'REJECT', confidence, f'composite score {composite:.2f} below rejection threshold'
-    return 'REVIEW', 0.5, f'composite score {composite:.2f} requires manual review'
+    # A mid-band composite is a confident call that a human should review it, not a
+    # low-confidence guess: like the fraud scorers' fixed REVIEW values (0.73 / 0.84),
+    # it reports a confidence that clears policy.lending.conservative's
+    # minimum_confidence (0.6). At 0.5 the runtime denied the risk agent's commit
+    # (confidence_below_minimum) and every deterministic default run was cancelled.
+    return 'REVIEW', 0.65, f'composite score {composite:.2f} requires manual review'
 
 
 _CLAIMS_SEVERITY_SCORES = {'minor': 1.0, 'moderate': 0.7, 'severe': 0.35, 'total_loss': 0.15}

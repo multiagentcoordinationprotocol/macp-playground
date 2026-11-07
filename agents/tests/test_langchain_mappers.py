@@ -1,6 +1,8 @@
 """Tests for the LangChain worker's pure kickoff/result mappers."""
 
+import json
 import logging
+from pathlib import Path
 
 from langchain_worker.chain import _score_result, build_agent
 from langchain_worker.mappers import (
@@ -188,6 +190,29 @@ class TestScoreFraud:
 
 
 class TestScoreLending:
+    # policy.lending.conservative's floor, read from the policy the scenario launches with so a
+    # change to either side shows up here rather than as a cancelled run.
+    LENDING_MIN_CONFIDENCE = json.loads(
+        (Path(__file__).resolve().parents[2] / 'policies' / 'policy.lending.conservative.json').read_text()
+    )['rules']['evaluation']['minimum_confidence']
+
+    def test_default_template_inputs_clear_the_lending_confidence_floor(self):
+        # packs/lending/scenarios/loan-underwriting/1.0.0/templates/default.yaml defaults:
+        # composite 0.51 lands in the REVIEW band, which used to report 0.5 and got the risk
+        # agent's commit denied (confidence_below_minimum), cancelling every deterministic run.
+        recommendation, confidence, _ = score_lending(680, 0.35, 3, 0)
+        assert recommendation == 'REVIEW'
+        assert confidence == 0.65
+        assert confidence >= self.LENDING_MIN_CONFIDENCE
+
+    def test_every_determinate_result_clears_the_lending_confidence_floor(self):
+        for credit_score in (300, 500, 580, 620, 650, 680, 720, 800, 850):
+            for dti in (0.0, 0.10, 0.20, 0.30, 0.35, 0.43, 0.55, 1.0):
+                for years in (0, 1, 2, 3, 5, 10):
+                    for defaults in (0, 1, 3):
+                        _, confidence, _ = score_lending(credit_score, dti, years, defaults)
+                        assert confidence >= self.LENDING_MIN_CONFIDENCE, (credit_score, dti, years, defaults)
+
     def test_strong_application_approves_with_qualifying_confidence(self):
         recommendation, confidence, _ = score_lending(720, 0.28, 6, 0)
         assert recommendation == 'APPROVE'
