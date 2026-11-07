@@ -1,0 +1,25 @@
+# Keys deploy/doppler-sync.sh pushes from Doppler (macp-playground/prd) into
+# the Railway service macp-playground-service (project macp-scenario-runner).
+# Doppler owns exactly these; the script never touches any other Railway
+# variable and never deletes one. The service has no Railway variable
+# references or RAILWAY_* variables today; if one is added, leave it out of
+# this list.
+
+# config
+AUTO_BOOTSTRAP_EXAMPLE_AGENTS
+MACP_AUTH_SERVICE_TIMEOUT_MS
+MACP_AUTH_SERVICE_URL
+MACP_AUTH_TOKEN_TTL_SECONDS
+MACP_CONTROL_PLANE_URL
+MACP_RUNTIME_ADDRESS
+MACP_RUNTIME_ALLOW_INSECURE
+MACP_RUNTIME_TLS
+NODE_ENV
+PACKS_DIR
+PORT
+REGISTER_POLICIES_ON_LAUNCH
+
+# secret
+AUTH_API_KEYS
+MACP_CONTROL_PLANE_API_KEY
+OPENAI_API_KEY
