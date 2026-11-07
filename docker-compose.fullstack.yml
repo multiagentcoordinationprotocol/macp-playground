@@ -1,6 +1,6 @@
-# Full-stack real-LLM end-to-end harness (runtime 0.13.0; siblings pinned by commit).
+# Full-stack real-LLM end-to-end harness (runtime 0.14.0; siblings pinned by commit).
 #
-# Brings up the complete MACP stack on the runtime 0.13.0 release so the example
+# Brings up the complete MACP stack on the runtime 0.14.0 release so the example
 # agents (LangGraph / LangChain / CrewAI / custom) actually call a real LLM and
 # drive a decision session on the runtime, observed by the control-plane.
 #
@@ -8,13 +8,13 @@
 # them via the auth-service JWKS (issuer/audience must match). macp-playground
 # mints a per-agent JWT on every spawn; the control-plane mints an observer JWT.
 #
-# v0.5.0 note (still current at 0.13.0): the runtime image does not bake
+# v0.5.0 note (still current at 0.14.0): the runtime image does not bake
 # `MACP_ALLOW_INSECURE=1` and refuses to start without auth unless it is set
 # explicitly — we set it below (required for plaintext gRPC regardless of JWT
 # auth). The runtime also exposes a Prometheus text endpoint on
 # `MACP_METRICS_ADDR` (:9464 here).
 #
-# Runtime image tag: pinned to the released `:0.13.0` semver tag (immutable, multi-arch
+# Runtime image tag: pinned to the released `:0.14.0` semver tag (immutable, multi-arch
 # linux/amd64 + linux/arm64). Upstream's release-plz publishes `:X.Y.Z` / `:X.Y` images
 # (multiagentcoordinationprotocol/macp-runtime#184, fixed in v0.8.2). CI's
 # `runtime-policy-admission` job reads this exact tag, so bumping it here re-proves every
@@ -53,18 +53,19 @@
 # tower-http 0.7 (this harness exports no telemetry), and it includes 0.12.1's stricter
 # policy-rule shape checks, which CI's runtime-policy-admission job re-proves against.
 #
+# 0.14 (semantics revision 5) tightens Handoff Commitment and refuses SessionCancel /
+# SessionSuspend / SessionResume submitted through Send as FORBIDDEN. Every scenario here is
+# Decision mode, and the risk-decider cancels, suspends and resumes through the dedicated RPCs,
+# so neither reaches this stack. `npm run test:scenarios` (SCENARIO_E2E_* variables) drives
+# every shipped scenario on this stack to a terminal control-plane run.
+#
 # Prereqs:
 #   runtime       — pulled from ghcr (no local Rust build needed)
-#   control-plane — pulled from ghcr, pinned by commit: `sha-a08add3`
-#                   (macp-control-plane#135: SDK 0.21, runtime 0.11.0 alignment, on top of
-#                   #134's receipt routes and #118's serialized per-run event transactions).
-#                   Since #123 the CP publishes multi-arch (linux/amd64 + linux/arm64) images.
-#                   Its TESTED_RUNTIME_RANGE stops below 0.12, so against runtime 0.13.0 it logs
-#                   a one-off "outside the tested range" warning. That is expected and harmless here;
-#                   a later CP re-pin clears it.
-#   auth-service  — built locally, tagged with the exact sibling commit (it publishes no image):
-#     macp-auth-service:5270353   (auth-service#41)
-#     git -C ../auth-service archive 5270353 | docker build -t macp-auth-service:5270353 -
+#   control-plane — pulled from ghcr, pinned by commit: `sha-8a874d4`
+#                   (macp-control-plane#156; #154 marks runtime 0.14.x as tested). The same
+#                   image the Railway macp-control-plane service runs. Multi-arch since #123.
+#   auth-service  — pulled from ghcr, pinned by commit: `sha-d34f3fd` (auth-service#54), the
+#                   image the Railway macp-auth-service service runs.
 #   macp-ui-console (6e16db0, #60) is not part of this stack.
 #   playground — built from this checkout (`docker compose ... up --build`; needs NODE_AUTH_TOKEN)
 #
@@ -72,7 +73,7 @@
 
 services:
   auth-service:
-    image: macp-auth-service:5270353
+    image: ghcr.io/multiagentcoordinationprotocol/macp-auth-service:sha-d34f3fd
     ports:
       - '3200:3200'
     environment:
@@ -151,7 +152,7 @@ services:
       retries: 10
 
   migrate:
-    image: ghcr.io/multiagentcoordinationprotocol/macp-control-plane:sha-a08add3
+    image: ghcr.io/multiagentcoordinationprotocol/macp-control-plane:sha-8a874d4
     command: ['node', 'dist/db/migrate.js']
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/macp_control_plane
@@ -160,7 +161,7 @@ services:
         condition: service_healthy
 
   macp-control-plane:
-    image: ghcr.io/multiagentcoordinationprotocol/macp-control-plane:sha-a08add3
+    image: ghcr.io/multiagentcoordinationprotocol/macp-control-plane:sha-8a874d4
     ports:
       - '3001:3001'
     environment:
