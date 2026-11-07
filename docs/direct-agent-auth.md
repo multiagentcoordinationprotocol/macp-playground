@@ -102,6 +102,9 @@ gRPC channel — the control-plane only observes the session (read-only
 Every agent spawn mints a short-lived RS256 JWT against the standalone
 auth-service (`POST /tokens`; wire format in
 [`macp-auth-service/docs/API.md` § `POST /tokens`](https://github.com/multiagentcoordinationprotocol/macp-auth-service/blob/main/docs/API.md#post-tokens)).
+The mint carries the auth-service's shared token-issuer key, `MACP_AUTH_SERVICE_API_KEY`, as
+`Authorization: Bearer <key>` (one of the auth-service's `TOKEN_ISSUER_KEYS`; a production
+auth-service rejects mints without it).
 There is no static-token fallback. `MACP_AUTH_SERVICE_URL` must be set to boot
 ([`deployment.md`](deployment.md)); minting happens on the spawn path, so only
 `/examples/run` requests that bootstrap agents depend on the auth-service being reachable.
@@ -284,6 +287,7 @@ history, authentication and back-pressure on the watch side) see
    and [`macp-auth-service/docs/integration.md` § Runtime wiring](https://github.com/multiagentcoordinationprotocol/macp-auth-service/blob/main/docs/integration.md#runtime-wiring).
 3. Set on the macp-playground:
    - `MACP_AUTH_SERVICE_URL=http://auth-service:3200` (required, fails fast).
+   - `MACP_AUTH_SERVICE_API_KEY=<auth-service TOKEN_ISSUER_KEYS value>` (required against a production auth-service).
    - `MACP_RUNTIME_ADDRESS=runtime.local:50051` (required for runs).
    - `MACP_AUTH_TOKEN_TTL_SECONDS` ≥ worst-case run length.
 4. On first boot, confirm the logs show `policy_registration_complete` with `failed=0`.

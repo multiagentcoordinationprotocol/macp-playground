@@ -137,6 +137,7 @@ This backend is designed to run alongside a Vercel-hosted frontend.
 ```
 NODE_ENV=production
 MACP_AUTH_SERVICE_URL=https://your-auth-service.example.com
+MACP_AUTH_SERVICE_API_KEY=<the auth-service's TOKEN_ISSUER_KEYS value>
 MACP_RUNTIME_ADDRESS=your-runtime.example.com:50051
 CORS_ORIGIN=https://your-app.vercel.app,https://your-app-*.vercel.app
 AUTH_API_KEYS=<generate-a-secret-key>
