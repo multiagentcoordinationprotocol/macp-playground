@@ -260,7 +260,7 @@ curl http://localhost:3000/healthz
 
 Both compose files forward `NODE_AUTH_TOKEN` (default empty) as a build arg, because `@multiagentcoordinationprotocol/proto` installs from GitHub Packages: `NODE_AUTH_TOKEN=<token with read:packages> docker compose -f docker-compose.dev.yml up --build`.
 
-The plain `docker-compose.yml` defaults `MACP_AUTH_SERVICE_URL` to `http://host.docker.internal:3200` (override via the environment) and passes `MACP_RUNTIME_ADDRESS` through, so it boots on its own. To actually run sessions, start the auth-service (and a runtime) first:
+The plain `docker-compose.yml` defaults `MACP_AUTH_SERVICE_URL` to `http://host.docker.internal:3200` (override via the environment) and passes `MACP_RUNTIME_ADDRESS` through, and requires `AUTH_API_KEYS` (production refuses to boot without one). To actually run sessions, start the auth-service (and a runtime) first:
 
 ```bash
 # In auth-service/
@@ -271,6 +271,7 @@ npm install && npm run build && npm start  # listens on :3200
 # so the build needs a token with read:packages.
 docker build --build-arg NODE_AUTH_TOKEN="$GITHUB_TOKEN" -t macp-playground .
 docker run -p 3000:3000 \
+  -e AUTH_API_KEYS=change-me \
   -e MACP_AUTH_SERVICE_URL=http://host.docker.internal:3200 \
   -e MACP_RUNTIME_ADDRESS=host.docker.internal:50051 \
   -e MACP_RUNTIME_TLS=false -e MACP_RUNTIME_ALLOW_INSECURE=true \
