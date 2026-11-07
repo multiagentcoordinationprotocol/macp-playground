@@ -35,7 +35,7 @@
 # issuer `runtime:<MACP_RUNTIME_ID>` — the default, and deliberately what this harness
 # runs; never commit a key here. Upgrade notes:
 # https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/deployment.md#upgrading-to-0110
-# The SDKs this repo pins (macp-sdk-typescript 0.21 / macp-sdk-python 0.22) carry the
+# The SDKs this repo pins (macp-sdk-typescript 0.23 / macp-sdk-python 0.23) carry the
 # receipt client methods; the playground itself does not call them (it returns at launch,
 # before a session resolves — outcomes are read through the control-plane).
 #
