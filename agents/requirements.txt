@@ -23,6 +23,6 @@ openai==2.54.0
 # MACP send spans would then ride along; compliance-agent.json's OTEL_SDK_DISABLED /
 # CREWAI_DISABLE_TELEMETRY is what stops it (pinned by shipped-manifests.spec.ts). No
 # other worker installs one, so the spans are non-recording and no traceparent goes on
-# the wire. Capped below 0.23 so the
+# the wire. Capped below 0.24 so the
 # next line is again a deliberate bump. Requires runtime >= 0.9.0.
-macp-sdk-python>=0.22,<0.23
+macp-sdk-python>=0.23.2,<0.24
