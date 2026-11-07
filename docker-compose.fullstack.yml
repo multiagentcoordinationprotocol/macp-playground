@@ -98,7 +98,7 @@ services:
     #     ({code, message, participants}); veto messages no longer embed participant ids.
     #   - registration refuses schema_version outside {1,2,3}, `rules.audit`, and any `x-`
     #     vendor key (this binary registers no RuleExtension).
-    image: ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.13.0
+    image: ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.14.0
     ports:
       - '50051:50051'
       # Prometheus text endpoint (v0.5.0+): curl http://localhost:9464/metrics
