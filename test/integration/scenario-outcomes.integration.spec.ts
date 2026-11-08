@@ -21,8 +21,10 @@ import { IntegrationTestClient } from '../helpers/integration-test-client';
  *                                       back to deterministic agents (an LLM launch limit) fails
  *
  * Each launch names its own client in X-MACP-Client-IP (198.18.0.0/15, the benchmarking range), so
- * one pass of the suite does not trip the playground's per-IP LLM burst limit. It still counts
- * against the global daily and monthly LLM caps.
+ * one pass of the suite does not trip the playground's per-IP LLM burst limit. The playground
+ * believes that header only on a keyed request, so against a target without AUTH_API_KEYS (the
+ * local fullstack compose) every launch shares one IP; that compose raises the burst for this
+ * reason. It still counts against the global daily and monthly LLM caps.
  *
  * Scenarios come from this checkout's `packs/`, so the target should run the same commit.
  */
