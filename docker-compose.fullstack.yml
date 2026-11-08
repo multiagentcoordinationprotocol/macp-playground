@@ -227,6 +227,11 @@ services:
       # default here; `PLAYGROUND_ALLOW_LLM=0 docker compose ... up` runs the stack deterministic.
       # LLM launch limits apply with in-memory counters (NODE_ENV=development; see
       # docs/deployment.md § LLM launch limits).
+      # This stack sets no AUTH_API_KEYS, so X-MACP-Client-IP is ignored (it is believed only on
+      # a keyed request) and every launch from the host counts against one IP. One pass of
+      # `npm run test:scenarios` makes 7 LLM launches, over the default burst of 5, so the burst
+      # is raised here; the daily and global limits keep their defaults.
+      LLM_LIMIT_PER_IP_BURST: ${LLM_LIMIT_PER_IP_BURST:-20}
       PLAYGROUND_ALLOW_LLM: ${PLAYGROUND_ALLOW_LLM:-1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY in the environment}
     depends_on:
